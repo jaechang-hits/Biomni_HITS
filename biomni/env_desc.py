@@ -75,8 +75,7 @@ data_lake_dict = {
     "Virus-Host_PPI_P-HIPSTER_2020.parquet": "Virus-host protein-protein interactions from P-HIPSTER.",
     "txgnn_name_mapping.pkl": "Name mapping for TXGNN.",
     "txgnn_prediction.pkl": "Prediction data for TXGNN.",
-    
-    # TrialBench Clinical Trial Datasets 
+    # TrialBench Clinical Trial Datasets
     "trialbench/trial-duration-forecasting": "Clinical trial duration prediction dataset from TrialBench with multi-modal features including drug molecules, disease codes, and text descriptions. Organized by trial phases (Phase1-4) with train/test splits in CSV format.",
     "trialbench/patient-dropout-event-forecasting": "Patient dropout rate prediction dataset from TrialBench for forecasting clinical trial participant withdrawal rates. Contains features for predicting participant retention across trial phases.",
     "trialbench/serious-adverse-event-forecasting": "Serious adverse events prediction dataset from TrialBench for clinical trial safety assessment. Includes drug characteristics, patient demographics, and safety profiles.",
