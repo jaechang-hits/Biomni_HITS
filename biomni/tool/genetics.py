@@ -18,6 +18,7 @@ def impute_missing_values(data, strategy="missforest", output_file=None):
     """
     try:
         from hyperimpute.plugins import Imputers
+
         print("Using HyperImpute API with Imputers().get()")
     except ImportError:
         print(" HyperImpute is not installed.")
@@ -50,7 +51,6 @@ def impute_missing_values(data, strategy="missforest", output_file=None):
         print(f" Imputed data saved to {output_file}")
 
     return imputed
-
 
 
 def liftover_coordinates(
