@@ -18,11 +18,14 @@ def impute_missing_values(data, strategy="missforest", output_file=None):
     """
     try:
         from hyperimpute.plugins import Imputers
-
         print("Using HyperImpute API with Imputers().get()")
     except ImportError:
         print(" HyperImpute is not installed.")
-        raise ImportError("Please install HyperImpute: pip install hyperimpute[all]")
+        raise ImportError("Please install HyperImpute: pip install hyperimpute[all]") from None
+
+    #  NEW: Early input validation
+    if data is None or (isinstance(data, pd.DataFrame) and data.empty):
+        raise ValueError(" Input data is empty or None.")
 
     # Convert to DataFrame if input is numpy array
     if isinstance(data, np.ndarray):
@@ -47,6 +50,7 @@ def impute_missing_values(data, strategy="missforest", output_file=None):
         print(f" Imputed data saved to {output_file}")
 
     return imputed
+
 
 
 def liftover_coordinates(
