@@ -1,3 +1,53 @@
+def impute_missing_values(data, strategy="missforest", output_file=None):
+    """
+    Impute missing values using HyperImpute.
+
+    Parameters
+    ----------
+    data : pd.DataFrame | np.ndarray
+        The dataset to impute (e.g., genotype or omics expression matrix).
+    strategy : str
+        Imputation strategy: 'missforest' (default) or 'iterative'.
+    output_file : str, optional
+        File path to save imputed data (CSV for DataFrame).
+
+    Returns
+    -------
+    pd.DataFrame
+        Imputed dataset.
+    """
+    try:
+        from hyperimpute.plugins import Imputers
+        print("Using HyperImpute API with Imputers().get()")
+    except ImportError:
+        print(" HyperImpute is not installed.")
+        raise ImportError("Please install HyperImpute: pip install hyperimpute[all]")
+
+    # Convert to DataFrame if input is numpy array
+    if isinstance(data, np.ndarray):
+        data = pd.DataFrame(data)
+
+    # Choose imputer
+    if strategy == "missforest":
+        print(" Using MissForest imputer...")
+        imputer = Imputers().get("missforest")
+    elif strategy == "iterative":
+        print(" Using Iterative imputer...")
+        imputer = Imputers().get("iterative")
+    else:
+        raise ValueError("Unsupported strategy. Use 'missforest' or 'iterative'.")
+
+    # Fit and transform
+    imputed = imputer.fit_transform(data)
+
+    # Save to file if needed
+    if output_file:
+        imputed.to_csv(output_file, index=False)
+        print(f" Imputed data saved to {output_file}")
+
+    return imputed
+
+
 def liftover_coordinates(
     chromosome: str,
     position: int,
