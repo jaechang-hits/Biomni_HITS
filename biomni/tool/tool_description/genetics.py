@@ -7,23 +7,23 @@ description = [
                 "default": "missforest",
                 "description": "Imputation strategy to use: 'missforest' or 'iterative'.",
                 "name": "strategy",
-                "type": "str"
+                "type": "str",
             },
             {
                 "default": None,
                 "description": "Optional file path to save the imputed dataset (CSV format).",
                 "name": "output_file",
-                "type": "str"
-            }
+                "type": "str",
+            },
         ],
         "required_parameters": [
             {
                 "default": None,
                 "description": "The dataset with missing values to impute. Can be a pandas DataFrame or NumPy array.",
                 "name": "data",
-                "type": "pandas.DataFrame"
+                "type": "pandas.DataFrame",
             }
-        ]
+        ],
     },
     {
         "description": "Perform liftover of genomic coordinates between hg19 and "
