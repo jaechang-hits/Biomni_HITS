@@ -1,5 +1,5 @@
 import os
-from typing import List, Optional
+from typing import Optional
 from Bio import Entrez
 from pydantic import BaseModel
 from mcp.server.fastmcp import FastMCP
@@ -17,10 +17,10 @@ class Article(BaseModel):
 
 
 @mcp.tool()
-def search_pubmed(query: str, max_results: int = 10) -> List[Article]:
+def search_pubmed(query: str, max_results: int = 10) -> list[Article]:
     ids = Entrez.read(Entrez.esearch(db="pubmed", term=query, retmax=max_results))["IdList"]
     summaries = Entrez.read(Entrez.esummary(db="pubmed", id=",".join(ids))) if ids else []
-    articles: List[Article] = []
+    articles: list[Article] = []
     for s in summaries:
         articles.append(Article(
             pmid=s["Id"],

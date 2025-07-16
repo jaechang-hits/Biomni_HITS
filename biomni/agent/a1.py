@@ -281,9 +281,9 @@ class A1:
             config_content = Path(config_path).read_text(encoding='utf-8')
             cfg: dict[str, Any] = yaml.safe_load(config_content) or {}
         except FileNotFoundError:
-            raise FileNotFoundError(f"MCP config file not found: {config_path}")
+            raise FileNotFoundError(f"MCP config file not found: {config_path}") from None
         except yaml.YAMLError as e:
-            raise yaml.YAMLError(f"Invalid YAML in MCP config: {e}")
+            raise yaml.YAMLError(f"Invalid YAML in MCP config: {e}") from e
         
         mcp_servers: dict[str, Any] = cfg.get("mcp_servers", {})
         
@@ -315,7 +315,7 @@ class A1:
             server_module = sys.modules[mcp_module_name]
 
             # Factory function to create synchronous wrappers for async MCP tools
-            def make_mcp_wrapper(cmd: str, args: list[str], tool_name: str, doc: str):
+            def make_mcp_wrapper(cmd: str, args: list[str], tool_name: str, doc: str, server_name: str, module_name: str):
                 """
                 Create a synchronous wrapper for an async MCP tool call.
                 
@@ -349,7 +349,7 @@ class A1:
                                             return content.json()
                                         return content.text
                             except Exception as e:
-                                raise RuntimeError(f"MCP session error for tool '{tool_name}': {e}")
+                                raise RuntimeError(f"MCP session error for tool '{tool_name}': {e}") from e
 
                         try:
                             loop = asyncio.get_running_loop()
@@ -359,10 +359,10 @@ class A1:
                             return loop.create_task(async_tool_call())
                         
                     except Exception as e:
-                        raise RuntimeError(f"MCP tool execution failed for '{tool_name}' on server '{server_name}': {e}")
+                        raise RuntimeError(f"MCP tool execution failed for '{tool_name}' on server '{server_name}': {e}") from e
                     
                 sync_tool_wrapper.__name__ = tool_name
-                sync_tool_wrapper.__module__ = mcp_module_name
+                sync_tool_wrapper.__module__ = module_name
                 sync_tool_wrapper.__doc__ = doc
                 
                 return sync_tool_wrapper
@@ -383,7 +383,7 @@ class A1:
                 parameters = tool_meta.get("parameters", {})
 
                 # Create the synchronous wrapper function
-                wrapper_function = make_mcp_wrapper(cmd, args, tool_name, description)
+                wrapper_function = make_mcp_wrapper(cmd, args, tool_name, description, server_name, mcp_module_name)
                 
                 # Add function to the server's module namespace
                 setattr(server_module, tool_name, wrapper_function)
