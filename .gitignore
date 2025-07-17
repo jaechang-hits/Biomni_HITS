@@ -40,6 +40,7 @@ res/
 examples/tmp*
 bioagentos/task/lab_bench.py
 *database/
+.history/
 
 temp.*
 
@@ -205,6 +206,10 @@ cython_debug/
 # macOS system files
 .DS_Store
 **/.DS_Store
+
+# DDInter data files
+biomni/tool/schema_db/ddinter_*.pkl
+data/ddinter_raw/
 
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can

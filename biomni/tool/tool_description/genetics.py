@@ -1,31 +1,5 @@
 description = [
     {
-        "description": "Impute missing values in genotype or omics data using HyperImpute. Supports strategies like 'missforest' and 'iterative' to handle missing data robustly.",
-        "name": "impute_missing_values",
-        "optional_parameters": [
-            {
-                "default": "missforest",
-                "description": "Imputation strategy to use: 'missforest' or 'iterative'.",
-                "name": "strategy",
-                "type": "str",
-            },
-            {
-                "default": None,
-                "description": "Optional file path to save the imputed dataset (CSV format).",
-                "name": "output_file",
-                "type": "str",
-            },
-        ],
-        "required_parameters": [
-            {
-                "default": None,
-                "description": "The dataset with missing values to impute. Can be a pandas DataFrame or NumPy array.",
-                "name": "data",
-                "type": "pandas.DataFrame",
-            }
-        ],
-    },
-    {
         "description": "Perform liftover of genomic coordinates between hg19 and "
         "hg38 formats with detailed intermediate steps.",
         "name": "liftover_coordinates",
