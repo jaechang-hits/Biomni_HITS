@@ -64,7 +64,7 @@ The system is organized into modular layers and components:
 
 - **Scripts (`biomni/biorxiv_scripts/`)**: Data processing pipelines for literature mining and task extraction.
 
-- **Documentation and Configuration**:  
+- **Documentation and Configuration**:
   - Root-level files: `README.md`, `CONTRIBUTION.md`, `pyproject.toml`, `.pre-commit-config.yaml`.
 
 ---
@@ -305,26 +305,26 @@ The system is organized into modular layers and components:
 
 ### Getting Started
 
-1. **Environment Setup**  
+1. **Environment Setup**
    - Run `biomni_env/setup.sh` to create the Conda environment, install R packages, and CLI tools.
    - Source `biomni_env/setup_path.sh` or add it to your shell profile to configure PATH.
 
-2. **API Keys**  
+2. **API Keys**
    - Set environment variables `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` for LLM access.
 
-3. **Running Agents**  
+3. **Running Agents**
    - Import and instantiate the `react` agent from `biomni.agent.react`.
    - Configure with desired tools and retrieval options.
    - Call `go(prompt)` to execute reasoning workflows.
 
-4. **Executing Tasks**  
+4. **Executing Tasks**
    - Use classes in `biomni.task` to load datasets and evaluate LLM responses.
    - Implement new tasks by subclassing `base_task` and following the interface.
 
-5. **Querying Databases**  
+5. **Querying Databases**
    - Use `biomni.tool.database` functions (e.g., `query_uniprot`, `query_gwas_catalog`) to retrieve data via natural language or direct parameters.
 
-6. **Extending Tools**  
+6. **Extending Tools**
    - Add new tool metadata in `biomni/tool/tool_description/` as structured dictionaries.
    - Implement corresponding analysis functions in `biomni/tool/`.
    - Register tools in `tool_registry.py` for discovery.
