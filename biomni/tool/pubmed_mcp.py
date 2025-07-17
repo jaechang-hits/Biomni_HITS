@@ -1,8 +1,9 @@
 import os
 from typing import Optional
+
 from Bio import Entrez
-from pydantic import BaseModel
 from mcp.server.fastmcp import FastMCP
+from pydantic import BaseModel
 
 Entrez.email = os.getenv("NCBI_EMAIL") or "YOUR_EMAIL"
 mcp = FastMCP("pubmed-live")
@@ -10,10 +11,10 @@ mcp = FastMCP("pubmed-live")
 
 class Article(BaseModel):
     pmid: str
-    title: Optional[str] = None
-    journal: Optional[str] = None
-    year: Optional[str] = None
-    abstract: Optional[str] = None
+    title: str | None = None
+    journal: str | None = None
+    year: str | None = None
+    abstract: str | None = None
 
 
 @mcp.tool()
@@ -22,12 +23,9 @@ def search_pubmed(query: str, max_results: int = 10) -> list[Article]:
     summaries = Entrez.read(Entrez.esummary(db="pubmed", id=",".join(ids))) if ids else []
     articles: list[Article] = []
     for s in summaries:
-        articles.append(Article(
-            pmid=s["Id"],
-            title=s["Title"],
-            journal=s.get("FullJournalName", ""),
-            year=s.get("PubDate", "")[:4]
-        ))
+        articles.append(
+            Article(pmid=s["Id"], title=s["Title"], journal=s.get("FullJournalName", ""), year=s.get("PubDate", "")[:4])
+        )
     return articles
 
 

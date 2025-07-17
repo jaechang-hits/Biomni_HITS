@@ -7,9 +7,7 @@ engine.load_tools()
 
 
 @mcp.tool()
-def FDA_get_active_ingredient_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_active_ingredient_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_active_ingredient_info_by_drug_name",
@@ -19,9 +17,7 @@ def FDA_get_active_ingredient_info_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_dosage_and_storage_information_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_dosage_and_storage_information_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_dosage_and_storage_information_by_drug_name",
@@ -31,9 +27,7 @@ def FDA_get_dosage_and_storage_information_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_abuse_info(
-    abuse_info: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_abuse_info(abuse_info: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_abuse_info",
@@ -58,9 +52,7 @@ def FDA_get_abuse_info_by_drug_name(drug_name: str, limit: int, skip: int) -> di
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_accessories(
-    accessory_name: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_accessories(accessory_name: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_accessories",
@@ -75,9 +67,7 @@ def FDA_get_drug_names_by_accessories(
 
 
 @mcp.tool()
-def FDA_get_accessories_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_accessories_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_accessories_info_by_drug_name",
@@ -87,9 +77,7 @@ def FDA_get_accessories_info_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_active_ingredient(
-    active_ingredient: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_active_ingredient(active_ingredient: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_active_ingredient",
@@ -104,9 +92,7 @@ def FDA_get_drug_names_by_active_ingredient(
 
 
 @mcp.tool()
-def FDA_get_manufacturer_name_NDC_number_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_manufacturer_name_NDC_number_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_manufacturer_name_NDC_number_by_drug_name",
@@ -132,9 +118,7 @@ def FDA_get_drug_names_by_application_number_NDC_number(
 
 
 @mcp.tool()
-def FDA_get_drug_name_by_adverse_reaction(
-    adverse_reaction: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_name_by_adverse_reaction(adverse_reaction: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_name_by_adverse_reaction",
@@ -148,9 +132,7 @@ def FDA_get_drug_name_by_adverse_reaction(
 
 
 @mcp.tool()
-def FDA_get_adverse_reactions_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_adverse_reactions_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_adverse_reactions_by_drug_name",
@@ -160,9 +142,7 @@ def FDA_get_adverse_reactions_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_alarm(
-    alarm_type: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_alarm(alarm_type: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_alarm",
@@ -204,9 +184,7 @@ def FDA_get_drug_names_by_animal_pharmacology_info(
 
 
 @mcp.tool()
-def FDA_get_animal_pharmacology_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_animal_pharmacology_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_animal_pharmacology_info_by_drug_name",
@@ -216,9 +194,7 @@ def FDA_get_animal_pharmacology_info_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_name_by_info_on_conditions_for_doctor_consultation(
-    condition: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_name_by_info_on_conditions_for_doctor_consultation(condition: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_name_by_info_on_conditions_for_doctor_consultation",
@@ -228,9 +204,7 @@ def FDA_get_drug_name_by_info_on_conditions_for_doctor_consultation(
 
 
 @mcp.tool()
-def FDA_get_info_on_conditions_for_doctor_consultation_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_info_on_conditions_for_doctor_consultation_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_info_on_conditions_for_doctor_consultation_by_drug_name",
@@ -257,9 +231,7 @@ def FDA_get_drug_names_by_consulting_doctor_pharmacist_info(
 
 
 @mcp.tool()
-def FDA_get_info_on_consulting_doctor_pharmacist_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_info_on_consulting_doctor_pharmacist_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_info_on_consulting_doctor_pharmacist_by_drug_name",
@@ -269,9 +241,7 @@ def FDA_get_info_on_consulting_doctor_pharmacist_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_assembly_installation_info(
-    field_info: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_assembly_installation_info(field_info: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_assembly_installation_info",
@@ -286,9 +256,7 @@ def FDA_get_drug_names_by_assembly_installation_info(
 
 
 @mcp.tool()
-def FDA_get_assembly_installation_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_assembly_installation_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_assembly_installation_info_by_drug_name",
@@ -298,9 +266,7 @@ def FDA_get_assembly_installation_info_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_boxed_warning(
-    warning_text: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_boxed_warning(warning_text: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_boxed_warning",
@@ -315,9 +281,7 @@ def FDA_get_drug_names_by_boxed_warning(
 
 
 @mcp.tool()
-def FDA_get_boxed_warning_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_boxed_warning_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_boxed_warning_info_by_drug_name",
@@ -327,9 +291,7 @@ def FDA_get_boxed_warning_info_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_name_by_calibration_instructions(
-    calibration_instructions: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_name_by_calibration_instructions(calibration_instructions: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_name_by_calibration_instructions",
@@ -343,9 +305,7 @@ def FDA_get_drug_name_by_calibration_instructions(
 
 
 @mcp.tool()
-def FDA_get_calibration_instructions_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_calibration_instructions_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_calibration_instructions_by_drug_name",
@@ -372,9 +332,7 @@ def FDA_get_drugs_by_carcinogenic_mutagenic_fertility(
 
 
 @mcp.tool()
-def FDA_get_carcinogenic_mutagenic_fertility_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_carcinogenic_mutagenic_fertility_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_carcinogenic_mutagenic_fertility_by_drug_name",
@@ -411,9 +369,7 @@ def FDA_get_drug_names_by_clinical_pharmacology(
 
 
 @mcp.tool()
-def FDA_get_clinical_pharmacology_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_clinical_pharmacology_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_clinical_pharmacology_by_drug_name",
@@ -423,9 +379,7 @@ def FDA_get_clinical_pharmacology_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_clinical_studies(
-    clinical_studies: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_clinical_studies(clinical_studies: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_clinical_studies",
@@ -440,9 +394,7 @@ def FDA_get_drug_names_by_clinical_studies(
 
 
 @mcp.tool()
-def FDA_get_clinical_studies_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_clinical_studies_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_clinical_studies_info_by_drug_name",
@@ -452,9 +404,7 @@ def FDA_get_clinical_studies_info_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_contraindications(
-    contraindication_info: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_contraindications(contraindication_info: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_contraindications",
@@ -469,9 +419,7 @@ def FDA_get_drug_names_by_contraindications(
 
 
 @mcp.tool()
-def FDA_get_contraindications_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_contraindications_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_contraindications_by_drug_name",
@@ -498,9 +446,7 @@ def FDA_get_drug_names_by_controlled_substance_DEA_schedule(
 
 
 @mcp.tool()
-def FDA_get_controlled_substance_DEA_schedule_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_controlled_substance_DEA_schedule_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_controlled_substance_DEA_schedule_info_by_drug_name",
@@ -510,9 +456,7 @@ def FDA_get_controlled_substance_DEA_schedule_info_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_name_by_dependence_info(
-    dependence_info: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_name_by_dependence_info(dependence_info: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_name_by_dependence_info",
@@ -536,9 +480,7 @@ def FDA_get_dependence_info_by_drug_name(drug_name: str, limit: int, skip: int) 
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_disposal_info(
-    disposal_info: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_disposal_info(disposal_info: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_disposal_info",
@@ -590,9 +532,7 @@ def FDA_get_drug_names_by_dosage_forms_and_strengths_info(
 
 
 @mcp.tool()
-def FDA_get_dosage_forms_and_strengths_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_dosage_forms_and_strengths_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_dosage_forms_and_strengths_by_drug_name",
@@ -602,9 +542,7 @@ def FDA_get_dosage_forms_and_strengths_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_abuse_dependence_info(
-    abuse_info: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_abuse_dependence_info(abuse_info: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_abuse_dependence_info",
@@ -614,9 +552,7 @@ def FDA_get_drug_names_by_abuse_dependence_info(
 
 
 @mcp.tool()
-def FDA_get_abuse_dependence_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_abuse_dependence_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_abuse_dependence_info_by_drug_name",
@@ -643,9 +579,7 @@ def FDA_get_drug_names_by_lab_test_interference(
 
 
 @mcp.tool()
-def FDA_get_lab_test_interference_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_lab_test_interference_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_lab_test_interference_info_by_drug_name",
@@ -655,9 +589,7 @@ def FDA_get_lab_test_interference_info_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_drug_interactions(
-    interaction_term: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_drug_interactions(interaction_term: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_drug_interactions",
@@ -672,9 +604,7 @@ def FDA_get_drug_names_by_drug_interactions(
 
 
 @mcp.tool()
-def FDA_get_drug_interactions_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_interactions_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_interactions_by_drug_name",
@@ -684,9 +614,7 @@ def FDA_get_drug_interactions_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_effective_time(
-    effective_time: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_effective_time(effective_time: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_effective_time",
@@ -711,9 +639,7 @@ def FDA_get_effective_time_by_drug_name(drug_name: str, limit: int, skip: int) -
 
 
 @mcp.tool()
-def FDA_get_drug_name_by_environmental_warning(
-    environmental_warning: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_name_by_environmental_warning(environmental_warning: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_name_by_environmental_warning",
@@ -727,9 +653,7 @@ def FDA_get_drug_name_by_environmental_warning(
 
 
 @mcp.tool()
-def FDA_get_environmental_warning_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_environmental_warning_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_environmental_warning_by_drug_name",
@@ -739,9 +663,7 @@ def FDA_get_environmental_warning_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_food_safety_warnings(
-    field_info: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_food_safety_warnings(field_info: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_food_safety_warnings",
@@ -756,9 +678,7 @@ def FDA_get_drug_names_by_food_safety_warnings(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_general_precautions(
-    precaution_info: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_general_precautions(precaution_info: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_general_precautions",
@@ -773,9 +693,7 @@ def FDA_get_drug_names_by_general_precautions(
 
 
 @mcp.tool()
-def FDA_get_general_precautions_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_general_precautions_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_general_precautions_by_drug_name",
@@ -785,9 +703,7 @@ def FDA_get_general_precautions_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_geriatric_use(
-    geriatric_use: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_geriatric_use(geriatric_use: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_geriatric_use",
@@ -802,9 +718,7 @@ def FDA_get_drug_names_by_geriatric_use(
 
 
 @mcp.tool()
-def FDA_get_geriatric_use_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_geriatric_use_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_geriatric_use_info_by_drug_name",
@@ -814,9 +728,7 @@ def FDA_get_geriatric_use_info_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_dear_health_care_provider_letter_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_dear_health_care_provider_letter_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_dear_health_care_provider_letter_info_by_drug_name",
@@ -843,9 +755,7 @@ def FDA_get_drug_names_by_dear_health_care_provider_letter_info(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_health_claim(
-    health_claim: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_health_claim(health_claim: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_health_claim",
@@ -890,9 +800,7 @@ def FDA_get_document_id_by_drug_name(drug_name: str, limit: int, skip: int) -> d
 
 
 @mcp.tool()
-def FDA_get_drug_name_by_inactive_ingredient(
-    inactive_ingredient: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_name_by_inactive_ingredient(inactive_ingredient: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_name_by_inactive_ingredient",
@@ -906,9 +814,7 @@ def FDA_get_drug_name_by_inactive_ingredient(
 
 
 @mcp.tool()
-def FDA_get_inactive_ingredient_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_inactive_ingredient_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_inactive_ingredient_info_by_drug_name",
@@ -955,9 +861,7 @@ def FDA_get_drug_names_by_information_for_owners_or_caregivers(
 
 
 @mcp.tool()
-def FDA_get_information_for_owners_or_caregivers_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_information_for_owners_or_caregivers_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_information_for_owners_or_caregivers_by_drug_name",
@@ -967,9 +871,7 @@ def FDA_get_information_for_owners_or_caregivers_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_info_for_patients_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_info_for_patients_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_info_for_patients_by_drug_name",
@@ -996,9 +898,7 @@ def FDA_get_drug_names_by_instructions_for_use(
 
 
 @mcp.tool()
-def FDA_get_instructions_for_use_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_instructions_for_use_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_instructions_for_use_by_drug_name",
@@ -1008,9 +908,7 @@ def FDA_get_instructions_for_use_by_drug_name(
 
 
 @mcp.tool()
-def FDA_retrieve_drug_name_by_device_use(
-    intended_use_of_the_device: str, limit: int, skip: int
-) -> dict:
+def FDA_retrieve_drug_name_by_device_use(intended_use_of_the_device: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_retrieve_drug_name_by_device_use",
@@ -1034,9 +932,7 @@ def FDA_retrieve_device_use_by_drug_name(drug_name: str, limit: int, skip: int) 
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_child_safety_info(
-    child_safety_info: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_child_safety_info(child_safety_info: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_child_safety_info",
@@ -1051,9 +947,7 @@ def FDA_get_drug_names_by_child_safety_info(
 
 
 @mcp.tool()
-def FDA_get_child_safety_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_child_safety_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_child_safety_info_by_drug_name",
@@ -1063,9 +957,7 @@ def FDA_get_child_safety_info_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_name_by_labor_and_delivery_info(
-    labor_and_delivery_info: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_name_by_labor_and_delivery_info(labor_and_delivery_info: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_name_by_labor_and_delivery_info",
@@ -1079,9 +971,7 @@ def FDA_get_drug_name_by_labor_and_delivery_info(
 
 
 @mcp.tool()
-def FDA_get_labor_and_delivery_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_labor_and_delivery_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_labor_and_delivery_info_by_drug_name",
@@ -1091,9 +981,7 @@ def FDA_get_labor_and_delivery_info_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_lab_tests(
-    lab_test_info: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_lab_tests(lab_test_info: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_lab_tests",
@@ -1118,9 +1006,7 @@ def FDA_get_lab_tests_by_drug_name(drug_name: str, limit: int, skip: int) -> dic
 
 
 @mcp.tool()
-def FDA_get_mechanism_of_action_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_mechanism_of_action_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_mechanism_of_action_by_drug_name",
@@ -1130,9 +1016,7 @@ def FDA_get_mechanism_of_action_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_mechanism_of_action(
-    mechanism_info: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_mechanism_of_action(mechanism_info: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_mechanism_of_action",
@@ -1147,9 +1031,7 @@ def FDA_get_drug_names_by_mechanism_of_action(
 
 
 @mcp.tool()
-def FDA_get_drug_name_by_microbiology(
-    microbiology_info: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_name_by_microbiology(microbiology_info: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_name_by_microbiology",
@@ -1163,9 +1045,7 @@ def FDA_get_drug_name_by_microbiology(
 
 
 @mcp.tool()
-def FDA_get_microbiology_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_microbiology_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_microbiology_info_by_drug_name",
@@ -1192,9 +1072,7 @@ def FDA_get_drug_names_by_nonclinical_toxicology_info(
 
 
 @mcp.tool()
-def FDA_get_nonclinical_toxicology_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_nonclinical_toxicology_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_nonclinical_toxicology_info_by_drug_name",
@@ -1221,9 +1099,7 @@ def FDA_get_drug_names_by_nonteratogenic_effects(
 
 
 @mcp.tool()
-def FDA_get_nonteratogenic_effects_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_nonteratogenic_effects_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_nonteratogenic_effects_by_drug_name",
@@ -1250,9 +1126,7 @@ def FDA_get_drug_names_by_info_for_nursing_mothers(
 
 
 @mcp.tool()
-def FDA_get_info_for_nursing_mothers_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_info_for_nursing_mothers_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_info_for_nursing_mothers_by_drug_name",
@@ -1262,9 +1136,7 @@ def FDA_get_info_for_nursing_mothers_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_name_by_other_safety_info(
-    safety_info: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_name_by_other_safety_info(safety_info: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_name_by_other_safety_info",
@@ -1274,9 +1146,7 @@ def FDA_get_drug_name_by_other_safety_info(
 
 
 @mcp.tool()
-def FDA_get_other_safety_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_other_safety_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_other_safety_info_by_drug_name",
@@ -1286,9 +1156,7 @@ def FDA_get_other_safety_info_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_overdosage_info(
-    overdosage_info: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_overdosage_info(overdosage_info: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_overdosage_info",
@@ -1313,9 +1181,7 @@ def FDA_get_overdosage_info_by_drug_name(drug_name: str, limit: int, skip: int) 
 
 
 @mcp.tool()
-def FDA_get_drug_name_by_principal_display_panel(
-    display_panel_content: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_name_by_principal_display_panel(display_panel_content: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_name_by_principal_display_panel",
@@ -1329,9 +1195,7 @@ def FDA_get_drug_name_by_principal_display_panel(
 
 
 @mcp.tool()
-def FDA_get_principal_display_panel_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_principal_display_panel_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_principal_display_panel_by_drug_name",
@@ -1341,9 +1205,7 @@ def FDA_get_principal_display_panel_by_drug_name(
 
 
 @mcp.tool()
-def FDA_retrieve_drug_names_by_patient_medication_info(
-    patient_info: str, limit: int, skip: int
-) -> dict:
+def FDA_retrieve_drug_names_by_patient_medication_info(patient_info: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_retrieve_drug_names_by_patient_medication_info",
@@ -1353,9 +1215,7 @@ def FDA_retrieve_drug_names_by_patient_medication_info(
 
 
 @mcp.tool()
-def FDA_retrieve_patient_medication_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_retrieve_patient_medication_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_retrieve_patient_medication_info_by_drug_name",
@@ -1365,9 +1225,7 @@ def FDA_retrieve_patient_medication_info_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_pediatric_use(
-    pediatric_use_info: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_pediatric_use(pediatric_use_info: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_pediatric_use",
@@ -1382,9 +1240,7 @@ def FDA_get_drug_names_by_pediatric_use(
 
 
 @mcp.tool()
-def FDA_get_pediatric_use_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_pediatric_use_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_pediatric_use_info_by_drug_name",
@@ -1394,9 +1250,7 @@ def FDA_get_pediatric_use_info_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_name_by_pharmacodynamics(
-    pharmacodynamics: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_name_by_pharmacodynamics(pharmacodynamics: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_name_by_pharmacodynamics",
@@ -1410,9 +1264,7 @@ def FDA_get_drug_name_by_pharmacodynamics(
 
 
 @mcp.tool()
-def FDA_get_pharmacodynamics_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_pharmacodynamics_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_pharmacodynamics_by_drug_name",
@@ -1422,9 +1274,7 @@ def FDA_get_pharmacodynamics_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_name_by_pharmacogenomics(
-    pharmacogenomics: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_name_by_pharmacogenomics(pharmacogenomics: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_name_by_pharmacogenomics",
@@ -1438,9 +1288,7 @@ def FDA_get_drug_name_by_pharmacogenomics(
 
 
 @mcp.tool()
-def FDA_get_pharmacogenomics_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_pharmacogenomics_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_pharmacogenomics_info_by_drug_name",
@@ -1450,9 +1298,7 @@ def FDA_get_pharmacogenomics_info_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_pharmacokinetics(
-    pharmacokinetics_info: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_pharmacokinetics(pharmacokinetics_info: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_pharmacokinetics",
@@ -1467,9 +1313,7 @@ def FDA_get_drug_names_by_pharmacokinetics(
 
 
 @mcp.tool()
-def FDA_get_pharmacokinetics_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_pharmacokinetics_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_pharmacokinetics_by_drug_name",
@@ -1499,9 +1343,7 @@ def FDA_get_precautions_by_drug_name(drug_name: str, limit: int, skip: int) -> d
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_pregnancy_effects_info(
-    pregnancy_info: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_pregnancy_effects_info(pregnancy_info: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_pregnancy_effects_info",
@@ -1516,9 +1358,7 @@ def FDA_get_drug_names_by_pregnancy_effects_info(
 
 
 @mcp.tool()
-def FDA_get_pregnancy_effects_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_pregnancy_effects_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_pregnancy_effects_info_by_drug_name",
@@ -1528,9 +1368,7 @@ def FDA_get_pregnancy_effects_info_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_name_by_pregnancy_or_breastfeeding_info(
-    pregnancy_info: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_name_by_pregnancy_or_breastfeeding_info(pregnancy_info: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_name_by_pregnancy_or_breastfeeding_info",
@@ -1544,9 +1382,7 @@ def FDA_get_drug_name_by_pregnancy_or_breastfeeding_info(
 
 
 @mcp.tool()
-def FDA_get_pregnancy_or_breastfeeding_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_pregnancy_or_breastfeeding_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_pregnancy_or_breastfeeding_info_by_drug_name",
@@ -1556,9 +1392,7 @@ def FDA_get_pregnancy_or_breastfeeding_info_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_contact_for_questions_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_contact_for_questions_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_contact_for_questions_info_by_drug_name",
@@ -1598,9 +1432,7 @@ def FDA_get_reference_info_by_drug_name(drug_name: str, limit: int, skip: int) -
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_residue_warning(
-    residue_warning: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_residue_warning(residue_warning: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_residue_warning",
@@ -1625,9 +1457,7 @@ def FDA_get_residue_warning_by_drug_name(drug_name: str, limit: int, skip: int) 
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_risk(
-    risk_info: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_risk(risk_info: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_risk",
@@ -1652,9 +1482,7 @@ def FDA_get_risk_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dic
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_route(
-    route: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_route(route: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_route",
@@ -1696,9 +1524,7 @@ def FDA_get_drug_names_by_safe_handling_warning(
 
 
 @mcp.tool()
-def FDA_get_safe_handling_warnings_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_safe_handling_warnings_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_safe_handling_warnings_by_drug_name",
@@ -1735,9 +1561,7 @@ def FDA_get_drug_names_by_spl_indexing_data_elements(
 
 
 @mcp.tool()
-def FDA_get_spl_indexing_data_elements_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_spl_indexing_data_elements_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_spl_indexing_data_elements_by_drug_name",
@@ -1747,9 +1571,7 @@ def FDA_get_spl_indexing_data_elements_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_medication_guide(
-    medguide_info: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_medication_guide(medguide_info: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_medication_guide",
@@ -1764,9 +1586,7 @@ def FDA_get_drug_names_by_medication_guide(
 
 
 @mcp.tool()
-def FDA_get_medication_guide_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_medication_guide_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_medication_guide_info_by_drug_name",
@@ -1776,9 +1596,7 @@ def FDA_get_medication_guide_info_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_name_from_patient_package_insert(
-    patient_package_insert: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_name_from_patient_package_insert(patient_package_insert: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_name_from_patient_package_insert",
@@ -1792,9 +1610,7 @@ def FDA_get_drug_name_from_patient_package_insert(
 
 
 @mcp.tool()
-def FDA_get_patient_package_insert_from_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_patient_package_insert_from_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_patient_package_insert_from_drug_name",
@@ -1804,9 +1620,7 @@ def FDA_get_patient_package_insert_from_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_ingredient(
-    ingredient_name: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_ingredient(ingredient_name: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_ingredient",
@@ -1831,9 +1645,7 @@ def FDA_get_ingredients_by_drug_name(drug_name: str, limit: int, skip: int) -> d
 
 
 @mcp.tool()
-def FDA_get_spl_unclassified_section_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_spl_unclassified_section_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_spl_unclassified_section_by_drug_name",
@@ -1843,9 +1655,7 @@ def FDA_get_spl_unclassified_section_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_name_by_stop_use_info(
-    stop_use_info: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_name_by_stop_use_info(stop_use_info: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_name_by_stop_use_info",
@@ -1865,9 +1675,7 @@ def FDA_get_stop_use_info_by_drug_name(drug_name: str, limit: int, skip: int) ->
 
 
 @mcp.tool()
-def FDA_get_drug_name_by_storage_and_handling_info(
-    storage_info: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_name_by_storage_and_handling_info(storage_info: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_name_by_storage_and_handling_info",
@@ -1877,9 +1685,7 @@ def FDA_get_drug_name_by_storage_and_handling_info(
 
 
 @mcp.tool()
-def FDA_get_storage_and_handling_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_storage_and_handling_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_storage_and_handling_info_by_drug_name",
@@ -1889,9 +1695,7 @@ def FDA_get_storage_and_handling_info_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_safety_summary(
-    summary_text: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_safety_summary(summary_text: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_safety_summary",
@@ -1916,9 +1720,7 @@ def FDA_get_safety_summary_by_drug_name(drug_name: str, limit: int, skip: int) -
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_teratogenic_effects(
-    teratogenic_effects: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_teratogenic_effects(teratogenic_effects: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_teratogenic_effects",
@@ -1933,9 +1735,7 @@ def FDA_get_drug_names_by_teratogenic_effects(
 
 
 @mcp.tool()
-def FDA_get_teratogenic_effects_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_teratogenic_effects_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_teratogenic_effects_by_drug_name",
@@ -1945,9 +1745,7 @@ def FDA_get_teratogenic_effects_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_population_use(
-    population_use: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_population_use(population_use: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_population_use",
@@ -1962,9 +1760,7 @@ def FDA_get_drug_names_by_population_use(
 
 
 @mcp.tool()
-def FDA_get_population_use_info_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_population_use_info_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_population_use_info_by_drug_name",
@@ -1974,9 +1770,7 @@ def FDA_get_population_use_info_by_drug_name(
 
 
 @mcp.tool()
-def FDA_get_user_safety_warning_by_drug_names(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_user_safety_warning_by_drug_names(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_user_safety_warning_by_drug_names",
@@ -1986,9 +1780,7 @@ def FDA_get_user_safety_warning_by_drug_names(
 
 
 @mcp.tool()
-def FDA_get_drug_names_by_user_safety_warning(
-    safety_warning: str, indication: str, limit: int, skip: int
-) -> dict:
+def FDA_get_drug_names_by_user_safety_warning(safety_warning: str, indication: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_drug_names_by_user_safety_warning",
@@ -2023,9 +1815,7 @@ def FDA_get_warnings_by_drug_name(drug_name: str, limit: int, skip: int) -> dict
 
 
 @mcp.tool()
-def FDA_get_warnings_and_cautions_by_drug_name(
-    drug_name: str, limit: int, skip: int
-) -> dict:
+def FDA_get_warnings_and_cautions_by_drug_name(drug_name: str, limit: int, skip: int) -> dict:
     return engine.run_one_function(
         {
             "name": "FDA_get_warnings_and_cautions_by_drug_name",
@@ -2093,15 +1883,11 @@ def FDA_get_purpose_info_by_drug_name(drug_name: str, limit: int, skip: int) -> 
 
 @mcp.tool()
 def FDA_get_drug_generic_name(drug_name: str) -> dict:
-    return engine.run_one_function(
-        {"name": "FDA_get_drug_generic_name", "arguments": {"drug_name": drug_name}}
-    )
+    return engine.run_one_function({"name": "FDA_get_drug_generic_name", "arguments": {"drug_name": drug_name}})
 
 
 @mcp.tool()
-def get_joint_associated_diseases_by_HPO_ID_list(
-    HPO_ID_list: list[str], limit: int, offset: int
-) -> dict:
+def get_joint_associated_diseases_by_HPO_ID_list(HPO_ID_list: list[str], limit: int, offset: int) -> dict:
     return engine.run_one_function(
         {
             "name": "get_joint_associated_diseases_by_HPO_ID_list",
@@ -2112,9 +1898,7 @@ def get_joint_associated_diseases_by_HPO_ID_list(
 
 @mcp.tool()
 def get_phenotype_by_HPO_ID(id: str) -> dict:
-    return engine.run_one_function(
-        {"name": "get_phenotype_by_HPO_ID", "arguments": {"id": id}}
-    )
+    return engine.run_one_function({"name": "get_phenotype_by_HPO_ID", "arguments": {"id": id}})
 
 
 @mcp.tool()
@@ -2188,9 +1972,7 @@ def OpenTargets_get_associated_drugs_by_disease_efoId(efoId: str, size: int) -> 
 
 
 @mcp.tool()
-def OpenTargets_get_similar_entities_by_disease_efoId(
-    efoId: str, threshold: float, size: int
-) -> dict:
+def OpenTargets_get_similar_entities_by_disease_efoId(efoId: str, threshold: float, size: int) -> dict:
     return engine.run_one_function(
         {
             "name": "OpenTargets_get_similar_entities_by_disease_efoId",
@@ -2200,9 +1982,7 @@ def OpenTargets_get_similar_entities_by_disease_efoId(
 
 
 @mcp.tool()
-def OpenTargets_get_similar_entities_by_drug_chemblId(
-    chemblId: str, threshold: float, size: int
-) -> dict:
+def OpenTargets_get_similar_entities_by_drug_chemblId(chemblId: str, threshold: float, size: int) -> dict:
     return engine.run_one_function(
         {
             "name": "OpenTargets_get_similar_entities_by_drug_chemblId",
@@ -2212,9 +1992,7 @@ def OpenTargets_get_similar_entities_by_drug_chemblId(
 
 
 @mcp.tool()
-def OpenTargets_get_similar_entities_by_target_ensemblID(
-    ensemblId: str, threshold: float, size: int
-) -> dict:
+def OpenTargets_get_similar_entities_by_target_ensemblID(ensemblId: str, threshold: float, size: int) -> dict:
     return engine.run_one_function(
         {
             "name": "OpenTargets_get_similar_entities_by_target_ensemblID",
@@ -2396,9 +2174,7 @@ def OpenTargets_get_target_enabling_packages_by_ensemblID(ensemblId: str) -> dic
 
 
 @mcp.tool()
-def OpenTargets_get_target_interactions_by_ensemblID(
-    ensemblId: str, page: dict
-) -> dict:
+def OpenTargets_get_target_interactions_by_ensemblID(ensemblId: str, page: dict) -> dict:
     return engine.run_one_function(
         {
             "name": "OpenTargets_get_target_interactions_by_ensemblID",
@@ -2568,9 +2344,7 @@ def OpenTargets_drug_pharmacogenomics_data(chemblId: str, page: dict) -> dict:
 
 
 @mcp.tool()
-def OpenTargets_get_associated_drugs_by_target_ensemblID(
-    ensemblId: str, size: int, cursor: str
-) -> dict:
+def OpenTargets_get_associated_drugs_by_target_ensemblID(ensemblId: str, size: int, cursor: str) -> dict:
     return engine.run_one_function(
         {
             "name": "OpenTargets_get_associated_drugs_by_target_ensemblID",
@@ -2600,9 +2374,7 @@ def OpenTargets_get_associated_targets_by_drug_chemblId(chemblId: str) -> dict:
 
 
 @mcp.tool()
-def OpenTargets_multi_entity_search_by_query_string(
-    queryString: str, entityNames: list[str], page: dict
-) -> dict:
+def OpenTargets_multi_entity_search_by_query_string(queryString: str, entityNames: list[str], page: dict) -> dict:
     return engine.run_one_function(
         {
             "name": "OpenTargets_multi_entity_search_by_query_string",

@@ -3,7 +3,7 @@ import inspect
 import os
 import re
 from pathlib import Path
-from typing import Literal, TypedDict, Any
+from typing import Any, Literal, TypedDict
 
 import pandas as pd
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -239,33 +239,34 @@ class A1:
     def add_mcp(self, config_path: str | Path = "./biomni/tool/tool_description/mcp_config.yaml") -> None:
         """
         Add MCP (Model Context Protocol) tools from configuration file.
-        
+
         This method dynamically registers MCP server tools as callable functions within
         the biomni agent system. Each MCP server is loaded as an independent module
         with its tools exposed as synchronous wrapper functions.
-        
+
         Args:
             config_path: Path to the MCP configuration YAML file containing server
                         definitions and tool specifications.
-        
+
         Raises:
             FileNotFoundError: If the config file doesn't exist
             yaml.YAMLError: If the config file is malformed
             RuntimeError: If MCP server initialization fails
-        
+
         Note:
             This implementation creates dynamic modules and modifies builtins for
             function registration. Consider using a more contained approach for
             production systems.
         """
-        import yaml
+        import asyncio
         import builtins
         import sys
         import types
+
         import nest_asyncio
-        import asyncio
+        import yaml
         from mcp import ClientSession
-        from mcp.client.stdio import stdio_client, StdioServerParameters
+        from mcp.client.stdio import StdioServerParameters, stdio_client
 
         nest_asyncio.apply()
 
@@ -278,15 +279,15 @@ class A1:
 
         # Load and validate configuration
         try:
-            config_content = Path(config_path).read_text(encoding='utf-8')
+            config_content = Path(config_path).read_text(encoding="utf-8")
             cfg: dict[str, Any] = yaml.safe_load(config_content) or {}
         except FileNotFoundError:
             raise FileNotFoundError(f"MCP config file not found: {config_path}") from None
         except yaml.YAMLError as e:
             raise yaml.YAMLError(f"Invalid YAML in MCP config: {e}") from e
-        
+
         mcp_servers: dict[str, Any] = cfg.get("mcp_servers", {})
-        
+
         if not mcp_servers:
             print("Log warning that no MCP servers were found")
             return
@@ -301,36 +302,39 @@ class A1:
             if not cmd_list or not isinstance(cmd_list, list):
                 print("Log warning about invalid command configuration")
                 continue
-            
+
             cmd, *args = cmd_list
 
             # Create isolated module namespace for this MCP server
             # This prevents tool name collisions between different servers
             mcp_module_name = f"mcp_servers.{server_name}"
-            
+
             if mcp_module_name not in sys.modules:
                 # Create new module for this MCP server's tools
                 sys.modules[mcp_module_name] = types.ModuleType(mcp_module_name)
-            
+
             server_module = sys.modules[mcp_module_name]
 
             # Factory function to create synchronous wrappers for async MCP tools
-            def make_mcp_wrapper(cmd: str, args: list[str], tool_name: str, doc: str, server_name: str, module_name: str):
+            def make_mcp_wrapper(
+                cmd: str, args: list[str], tool_name: str, doc: str, server_name: str, module_name: str
+            ):
                 """
                 Create a synchronous wrapper for an async MCP tool call.
-                
+
                 This wrapper handles the full MCP session lifecycle for each call,
                 including connection establishment, tool invocation, and cleanup.
-                
+
                 Args:
                     cmd: MCP server executable command
                     args: Command line arguments for the MCP server
                     tool_name: Name of the tool to invoke
                     doc: Documentation string for the wrapper function
-                
+
                 Returns:
                     Synchronous function that can be called with keyword arguments
                 """
+
                 def sync_tool_wrapper(**kwargs):
                     """Synchronous wrapper for MCP tool execution."""
                     try:
@@ -357,14 +361,16 @@ class A1:
                             return asyncio.run(async_tool_call())
                         else:
                             return loop.create_task(async_tool_call())
-                        
+
                     except Exception as e:
-                        raise RuntimeError(f"MCP tool execution failed for '{tool_name}' on server '{server_name}': {e}") from e
-                    
+                        raise RuntimeError(
+                            f"MCP tool execution failed for '{tool_name}' on server '{server_name}': {e}"
+                        ) from e
+
                 sync_tool_wrapper.__name__ = tool_name
                 sync_tool_wrapper.__module__ = module_name
                 sync_tool_wrapper.__doc__ = doc
-                
+
                 return sync_tool_wrapper
 
             # Register each tool defined for this MCP server
@@ -372,36 +378,36 @@ class A1:
             if not tools_config:
                 print("Log warning that no tools were configured for this server")
                 continue
-                
+
             for tool_meta in tools_config:
                 tool_name = tool_meta.get("biomni_name")
                 if not tool_name:
                     print("Log warning about missing tool name")
                     continue
-                    
+
                 description = tool_meta.get("description", f"MCP tool: {tool_name}")
                 parameters = tool_meta.get("parameters", {})
 
                 # Create the synchronous wrapper function
                 wrapper_function = make_mcp_wrapper(cmd, args, tool_name, description, server_name, mcp_module_name)
-                
+
                 # Add function to the server's module namespace
                 setattr(server_module, tool_name, wrapper_function)
 
                 # Build parameter lists for tool schema
                 required_params, optional_params = [], []
-                
+
                 for param_name, param_spec in parameters.items():
                     param_type = param_spec.get("type")
                     type_name = param_type.__name__ if isinstance(param_type, type) else str(param_type)
-                    
+
                     param_info = {
                         "name": param_name,
                         "type": type_name,
                         "description": param_spec.get("description", ""),
                         "default": param_spec.get("default", None),
                     }
-                    
+
                     # Categorize parameters as required or optional
                     if param_spec.get("required", False):
                         required_params.append(param_info)
@@ -422,21 +428,21 @@ class A1:
                 # Register the tool in various registries
                 # Main tool registry for discovery and documentation
                 self.tool_registry.register_tool(tool_schema)
-                
+
                 # Module to API mapping for organization
                 if mcp_module_name not in self.module2api:
                     self.module2api[mcp_module_name] = []
                 self.module2api[mcp_module_name].append(tool_schema)
-                
+
                 # Global function registry (consider removing in future versions)
                 builtins._biomni_custom_functions[tool_name] = wrapper_function
-                
+
                 # Instance-level registries
                 self._custom_functions[tool_name] = wrapper_function
                 self._custom_tools[tool_name] = {
                     "name": tool_name,
                     "description": description,
-                    "module": mcp_module_name
+                    "module": mcp_module_name,
                 }
 
         # Update agent prompt with newly registered tools
