@@ -1,17 +1,13 @@
-import json
 import os
 import pickle
 import re
 import subprocess
 import sys
-import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from difflib import get_close_matches
-from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
-import requests
 
 
 def run_diffdock_with_smiles(pdb_path, smiles_string, local_output_dir, gpu_device=0, use_gpu=True):
@@ -468,10 +464,10 @@ def analyze_accelerated_stability_of_pharmaceutical_formulations(formulations, s
             # Calculate stability parameters at each time point
             initial_content = 100.0  # Starting at 100%
 
-            for time_point in time_points:
+            for time in time_points:
                 # Chemical stability (% of initial content)
                 # Simple first-order degradation model
-                effective_time = time_point * accel_factor * humidity_factor
+                effective_time = time * accel_factor * humidity_factor
                 chemical_stability = initial_content * np.exp(-0.001 * effective_time)
 
                 # Physical stability (score from 1-10, 10 being perfect)
@@ -491,7 +487,7 @@ def analyze_accelerated_stability_of_pharmaceutical_formulations(formulations, s
                         "Storage_Condition": condition["description"],
                         "Temperature_C": temp_c,
                         "Humidity_RH": condition.get("humidity", "N/A"),
-                        "Time_Days": time_point,
+                        "Time_Days": time,
                         "Chemical_Stability_Percent": round(chemical_stability, 2),
                         "Physical_Stability_Score": round(physical_stability, 1),
                         "Particle_Size_Change_Percent": round(particle_size_change, 2),
@@ -695,6 +691,7 @@ def grade_adverse_events_using_vcog_ctcae(clinical_data_file):
         The graded events are saved to 'vcog_ctcae_graded_events.csv'.
 
     """
+    import json
     from datetime import datetime
 
     import pandas as pd
@@ -1087,6 +1084,7 @@ def analyze_radiolabeled_antibody_biodistribution(time_points, tissue_data):
         and tumor-to-normal tissue ratios
 
     """
+    import json
     import os
 
     import numpy as np
@@ -2973,6 +2971,12 @@ class OpenFDAClient:
     BASE_URL = "https://api.fda.gov"
 
     def __init__(self):
+        import time
+
+        import requests
+
+        self.requests = requests
+        self.time = time
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "Biomni-Agent/1.0 (https://biomni.stanford.edu)"})
         self.retry_attempts = 3
@@ -2982,13 +2986,13 @@ class OpenFDAClient:
 
     def _handle_rate_limiting(self):
         """Implement rate limiting to respect FDA API limits."""
-        current_time = time.time()
+        current_time = self.time.time()
         time_since_last = current_time - self.last_request_time
 
         if time_since_last < self.rate_limit_delay:
-            time.sleep(self.rate_limit_delay - time_since_last)
+            self.time.sleep(self.rate_limit_delay - time_since_last)
 
-        self.last_request_time = time.time()
+        self.last_request_time = self.time.time()
 
     def _validate_response(self, response_data: dict) -> dict:
         """Validate FDA API response structure and handle variations."""
@@ -3083,15 +3087,15 @@ class OpenFDAClient:
 
                 return data
 
-            except requests.exceptions.Timeout:
+            except self.requests.exceptions.Timeout:
                 if attempt == self.retry_attempts - 1:
                     raise Exception("FDA API request timed out after multiple attempts") from None
-                time.sleep(2**attempt)  # Exponential backoff
+                self.time.sleep(2**attempt)  # Exponential backoff
 
-            except requests.exceptions.HTTPError as e:
+            except self.requests.exceptions.HTTPError as e:
                 if e.response.status_code == 429:
                     # Rate limiting - wait and retry
-                    time.sleep(5 * (attempt + 1))
+                    self.time.sleep(5 * (attempt + 1))
                     continue
                 else:
                     raise Exception(f"FDA API HTTP Error: {e.response.status_code}") from e
@@ -3099,7 +3103,7 @@ class OpenFDAClient:
             except Exception as e:
                 if attempt == self.retry_attempts - 1:
                     raise Exception(f"FDA API request failed: {str(e)}") from e
-                time.sleep(2**attempt)
+                self.time.sleep(2**attempt)
 
         return {}
 
@@ -3206,6 +3210,8 @@ def _parse_fda_date_range(
     start_date: str | None = None, end_date: str | None = None, days_back: int | None = None
 ) -> tuple[str, str]:
     """Convert date formats to FDA API format (YYYYMMDD)."""
+    from datetime import datetime, timedelta
+
     if days_back:
         end_dt = datetime.now()
         start_dt = end_dt - timedelta(days=days_back)
