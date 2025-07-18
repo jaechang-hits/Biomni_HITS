@@ -1600,3 +1600,157 @@ Each library is listed with its description to help you understand its functiona
             if not hasattr(builtins, "_biomni_custom_functions"):
                 builtins._biomni_custom_functions = {}
             builtins._biomni_custom_functions.update(self._custom_functions)
+
+    def create_mcp_server(self, tool_modules=None):
+        """
+        Create an MCP server object that exposes internal Biomni tools.
+        This gives you control over when and how to run the server.
+
+        Args:
+            tool_modules: List of module names to expose (default: all in self.module2api)
+
+        Returns:
+            FastMCP server object that you can run manually
+        """
+        import importlib
+        import inspect
+        from typing import Optional
+
+        from mcp.server.fastmcp import FastMCP
+
+        mcp = FastMCP("BiomniTools")
+        modules = tool_modules or list(self.module2api.keys())
+
+        registered_tools = 0
+
+        for module_name in modules:
+            try:
+                # Import the actual module
+                module = importlib.import_module(module_name)
+                # Get tools for this module
+                module_tools = self.module2api.get(module_name, [])
+
+                for tool_schema in module_tools:
+                    tool_name = tool_schema.get("name")
+                    if not tool_name:
+                        continue
+
+                    try:
+                        # Get the actual function
+                        fn = getattr(module, tool_name, None)
+                        if fn is None:
+                            fn = getattr(self, "_custom_functions", {}).get(tool_name)
+
+                        if fn is None:
+                            print(f"Warning: Could not find function '{tool_name}' in module '{module_name}'")
+                            continue
+
+                        # Extract parameters from your specific schema format
+                        required_params = tool_schema.get("required_parameters", [])
+                        optional_params = tool_schema.get("optional_parameters", [])
+
+                        # Generate the wrapper function
+                        wrapper_func = self._generate_mcp_wrapper_from_biomni_schema(
+                            fn, tool_name, required_params, optional_params
+                        )
+
+                        # Register with MCP
+                        mcp.tool()(wrapper_func)
+                        registered_tools += 1
+
+                    except Exception as e:
+                        print(f"Warning: Failed to register tool '{tool_name}': {e}")
+                        continue
+
+            except ImportError as e:
+                print(f"Warning: Could not import module '{module_name}': {e}")
+                continue
+
+        print(f"Created MCP server with {registered_tools} tools")
+        return mcp
+
+    def _generate_mcp_wrapper_from_biomni_schema(self, original_func, func_name, required_params, optional_params):
+        """Generate wrapper function based on Biomni schema format."""
+        import inspect
+
+        # Combine all parameters
+        all_params = required_params + optional_params
+
+        if not all_params:
+            # No parameters
+            def wrapper() -> dict:
+                try:
+                    result = original_func()
+                    if isinstance(result, dict):
+                        return result
+                    return {"result": result}
+                except Exception as e:
+                    return {"error": str(e)}
+
+            wrapper.__name__ = func_name
+            wrapper.__doc__ = original_func.__doc__
+            return wrapper
+
+        else:
+            # Has parameters
+            def wrapper(**kwargs) -> dict:
+                try:
+                    # Build arguments dict
+                    filtered_kwargs = {}
+
+                    # Add required parameters
+                    for param_info in required_params:
+                        param_name = param_info["name"]
+                        if param_name in kwargs and kwargs[param_name] is not None:
+                            filtered_kwargs[param_name] = kwargs[param_name]
+
+                    # Add optional parameters only if provided and not None
+                    for param_info in optional_params:
+                        param_name = param_info["name"]
+                        if param_name in kwargs and kwargs[param_name] is not None:
+                            filtered_kwargs[param_name] = kwargs[param_name]
+
+                    result = original_func(**filtered_kwargs)
+                    if isinstance(result, dict):
+                        return result
+                    return {"result": result}
+                except Exception as e:
+                    return {"error": str(e)}
+
+            # Set function metadata
+            wrapper.__name__ = func_name
+            wrapper.__doc__ = original_func.__doc__
+
+            # Create proper signature
+            new_params = []
+
+            # Map your types to Python types
+            type_map = {"str": str, "int": int, "float": float, "bool": bool, "List[str]": list[str], "dict": dict}
+
+            # Add required parameters
+            for param_info in required_params:
+                param_name = param_info["name"]
+                param_type_str = param_info["type"]
+                param_type = type_map.get(param_type_str, str)
+
+                new_params.append(inspect.Parameter(param_name, inspect.Parameter.KEYWORD_ONLY, annotation=param_type))
+
+            # Add optional parameters
+            for param_info in optional_params:
+                param_name = param_info["name"]
+                param_type_str = param_info["type"]
+                param_type = type_map.get(param_type_str, str)
+
+                # Make it optional
+                optional_type = param_type | None
+
+                new_params.append(
+                    inspect.Parameter(
+                        param_name, inspect.Parameter.KEYWORD_ONLY, default=None, annotation=optional_type
+                    )
+                )
+
+            # Set the signature
+            wrapper.__signature__ = inspect.Signature(new_params, return_annotation=dict)
+
+            return wrapper
