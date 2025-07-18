@@ -1,6 +1,6 @@
 mcp_servers:
   pubmed:
-    command: ["python", "-m", "biomni.tool.pubmed_mcp"]
+    command: ["python", "-m", "biomni.tool.mcp_tools.pubmed_mcp"]
     enabled: true
     tools:
       - biomni_name: search_pubmed
@@ -14,7 +14,7 @@ mcp_servers:
           pmid: {type: str, required: true, description: "PubMed ID"}
 
   tooluniverse:
-    command: ["python", "-m", "biomni.tool.tooluniverse_mcp"]
+    command: ["python", "-m", "biomni.tool.mcp_tools.tooluniverse_mcp"]
     enabled: true
     tools:
       - biomni_name: FDA_get_active_ingredient_info_by_drug_name

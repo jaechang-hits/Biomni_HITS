@@ -236,7 +236,7 @@ class A1:
             traceback.print_exc()
             raise
 
-    def add_mcp(self, config_path: str | Path = "./biomni/tool/tool_description/mcp_config.yaml") -> None:
+    def add_mcp(self, config_path: str | Path = "./tutorials/examples/mcp_config.yaml") -> None:
         """
         Add MCP (Model Context Protocol) tools from configuration file.
 
