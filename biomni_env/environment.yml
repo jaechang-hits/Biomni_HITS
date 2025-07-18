@@ -35,4 +35,3 @@ dependencies:
       - pytest
       - transformers
       - sentencepiece
-      - hyperimpute
