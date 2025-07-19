@@ -1657,7 +1657,7 @@ def FDA_get_drug_generic_name(drug_name: str) -> dict:
 
 
 @mcp.tool()
-def get_joint_associated_diseases_by_HPO_ID_list(HPO_ID_list: List[str], limit: int, offset: int) -> dict:
+def get_joint_associated_diseases_by_HPO_ID_list(HPO_ID_list: list[str], limit: int, offset: int) -> dict:
     return engine.run_one_function(
         {
             "name": "get_joint_associated_diseases_by_HPO_ID_list",
@@ -1758,7 +1758,7 @@ def OpenTargets_get_associated_phenotypes_by_disease_efoId(efoId: str) -> dict:
 
 
 @mcp.tool()
-def OpenTargets_get_drug_withdrawn_blackbox_status_by_chemblId(chemblId: List[str]) -> dict:
+def OpenTargets_get_drug_withdrawn_blackbox_status_by_chemblId(chemblId: list[str]) -> dict:
     return engine.run_one_function(
         {"name": "OpenTargets_get_drug_withdrawn_blackbox_status_by_chemblId", "arguments": {"chemblId": chemblId}}
     )
@@ -2014,7 +2014,7 @@ def OpenTargets_get_associated_targets_by_drug_chemblId(chemblId: str) -> dict:
 
 
 @mcp.tool()
-def OpenTargets_multi_entity_search_by_query_string(queryString: str, entityNames: List[str], page: dict) -> dict:
+def OpenTargets_multi_entity_search_by_query_string(queryString: str, entityNames: list[str], page: dict) -> dict:
     return engine.run_one_function(
         {
             "name": "OpenTargets_multi_entity_search_by_query_string",
@@ -2024,7 +2024,7 @@ def OpenTargets_multi_entity_search_by_query_string(queryString: str, entityName
 
 
 @mcp.tool()
-def OpenTargets_get_gene_ontology_terms_by_goID(goIds: List[str]) -> dict:
+def OpenTargets_get_gene_ontology_terms_by_goID(goIds: list[str]) -> dict:
     return engine.run_one_function(
         {"name": "OpenTargets_get_gene_ontology_terms_by_goID", "arguments": {"goIds": goIds}}
     )
@@ -2039,7 +2039,7 @@ def OpenTargets_get_target_constraint_info_by_ensemblID(ensemblId: str) -> dict:
 
 @mcp.tool()
 def OpenTargets_get_publications_by_disease_efoId(
-    entityId: str, additionalIds: List[str], startYear: int, startMonth: int, endYear: int, endMonth: int
+    entityId: str, additionalIds: list[str], startYear: int, startMonth: int, endYear: int, endMonth: int
 ) -> dict:
     return engine.run_one_function(
         {
@@ -2058,7 +2058,7 @@ def OpenTargets_get_publications_by_disease_efoId(
 
 @mcp.tool()
 def OpenTargets_get_publications_by_target_ensemblID(
-    entityId: str, additionalIds: List[str], startYear: int, startMonth: int, endYear: int, endMonth: int
+    entityId: str, additionalIds: list[str], startYear: int, startMonth: int, endYear: int, endMonth: int
 ) -> dict:
     return engine.run_one_function(
         {
@@ -2077,7 +2077,7 @@ def OpenTargets_get_publications_by_target_ensemblID(
 
 @mcp.tool()
 def OpenTargets_get_publications_by_drug_chemblId(
-    entityId: str, additionalIds: List[str], startYear: int, startMonth: int, endYear: int, endMonth: int
+    entityId: str, additionalIds: list[str], startYear: int, startMonth: int, endYear: int, endMonth: int
 ) -> dict:
     return engine.run_one_function(
         {
