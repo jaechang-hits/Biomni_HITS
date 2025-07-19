@@ -4,6 +4,7 @@ import os
 import re
 from typing import Literal, TypedDict
 
+from dotenv import load_dotenv
 import pandas as pd
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -26,6 +27,11 @@ from biomni.utils import (
     run_with_timeout,
     textify_api_dict,
 )
+
+
+if os.path.exists(".env"):
+    load_dotenv(".env", override=False)
+    print("Loaded environment variables from .env")
 
 
 class AgentState(TypedDict):
