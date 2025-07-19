@@ -37,4 +37,4 @@ dependencies:
       - sentencepiece
       - hyperimpute
       - mcp
-      - toolunivers
+      - tooluniverse
