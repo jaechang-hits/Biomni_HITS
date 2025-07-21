@@ -125,7 +125,13 @@ description = [
                 "description": "The name of the disease for which to retrieve drug predictions",
                 "name": "disease_name",
                 "type": "str",
-            }
+            },
+            {
+                "default": None,
+                "description": "Path to the data lake",
+                "name": "data_lake_path",
+                "type": "str",
+            },
         ],
     },
     {
