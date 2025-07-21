@@ -73,9 +73,16 @@ def get_llm(
             stop_sequences=stop_sequences,
         )
     elif source == "Gemini":
-        return ChatGoogleGenerativeAI(
+        # return ChatGoogleGenerativeAI(
+        #     model=model,
+        #     temperature=temperature,
+        # )
+        return ChatOpenAI(
             model=model,
             temperature=temperature,
+            api_key=os.getenv("GEMINI_API_KEY"),
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            stop_sequences=stop_sequences,
         )
     elif source == "Ollama":
         return ChatOllama(
