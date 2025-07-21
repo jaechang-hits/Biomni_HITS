@@ -3157,40 +3157,6 @@ class OpenFDAClient:
 # Helper Functions for OpenFDA Data Processing
 
 
-def _validate_fda_response(response_data: dict) -> dict:
-    """Validate FDA API response structure."""
-    if not isinstance(response_data, dict):
-        raise ValueError("Invalid FDA API response format")
-
-    if "error" in response_data:
-        error_msg = response_data["error"].get("message", "Unknown FDA API error")
-        raise Exception(f"FDA API Error: {error_msg}")
-
-    if "results" not in response_data and "meta" not in response_data:
-        raise ValueError("Invalid FDA API response structure")
-
-    return response_data
-
-
-def _handle_fda_api_variations(endpoint: str, params: dict) -> dict:
-    """Handle known FDA API endpoint variations and parameter mappings."""
-    # Different endpoints have different parameter names
-    endpoint_param_mappings = {
-        "drug/event": {"drug_name": "patient.drug.openfda.brand_name"},
-        "drug/label": {"drug_name": "openfda.brand_name"},
-        "drug/enforcement": {"drug_name": "openfda.brand_name"},
-    }
-
-    # Transform parameters based on endpoint
-    result = params.copy()
-    if endpoint in endpoint_param_mappings:
-        for key, fda_key in endpoint_param_mappings[endpoint].items():
-            if key in result:
-                result[fda_key] = result.pop(key)
-
-    return result
-
-
 def _standardize_drug_name_fda(drug_name: str) -> str:
     """Standardize drug names for FDA API queries."""
     # Handle None/empty values
@@ -3208,37 +3174,6 @@ def _standardize_drug_name_fda(drug_name: str) -> str:
             name = name[: -len(f" {suffix}")]
 
     return name
-
-
-def _parse_fda_date_range(
-    start_date: str | None = None, end_date: str | None = None, days_back: int | None = None
-) -> tuple[str, str]:
-    """Convert date formats to FDA API format (YYYYMMDD)."""
-    from datetime import datetime, timedelta
-
-    if days_back:
-        end_dt = datetime.now()
-        start_dt = end_dt - timedelta(days=days_back)
-        return start_dt.strftime("%Y%m%d"), end_dt.strftime("%Y%m%d")
-
-    if not start_date:
-        raise ValueError("Either start_date or days_back must be provided")
-
-    # Parse date strings
-    try:
-        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-        start_fda = start_dt.strftime("%Y%m%d")
-
-        if end_date:
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-            end_fda = end_dt.strftime("%Y%m%d")
-        else:
-            end_fda = datetime.now().strftime("%Y%m%d")
-
-        return start_fda, end_fda
-    except ValueError as e:
-        # Raise exception for invalid date format
-        raise ValueError(f"Invalid date format: {e}") from e
 
 
 def _apply_fda_filters(response_data: dict, filters: dict) -> dict:
@@ -3628,51 +3563,6 @@ def _format_safety_signal_summary(
         summary += "* Analysis considers seasonal variations and reporting delays\n"
 
     return summary
-
-
-def _format_fda_results(response_data: dict, result_type: str = "general") -> str:
-    """General formatting function for FDA API results."""
-    if not response_data or "results" not in response_data:
-        return "No results found."
-
-    results = response_data["results"]
-    meta = response_data.get("meta", {})
-
-    summary = f"OpenFDA {result_type.title()} Results\n"
-    summary += "=" * (15 + len(result_type)) + "\n"
-    summary += f"Total Results: {meta.get('results', {}).get('total', len(results))}\n"
-    summary += f"Returned: {len(results)}\n\n"
-
-    # Basic result information
-    for i, result in enumerate(results[:5]):  # Show first 5 results
-        summary += f"Result {i + 1}:\n"
-        # Try to find meaningful fields to display
-        if "patient" in result:
-            summary += "  Patient Data: Available\n"
-        if "receiptdate" in result:
-            summary += f"  Receipt Date: {result['receiptdate']}\n"
-        if "serious" in result:
-            summary += f"  Serious: {'Yes' if result['serious'] == '1' else 'No'}\n"
-        summary += "\n"
-
-    if len(results) > 5:
-        summary += f"... and {len(results) - 5} more results\n"
-
-    return summary
-
-
-def _query_fda_api(endpoint: str, params: dict) -> dict:
-    """General FDA API query function."""
-    client = OpenFDAClient()
-
-    if endpoint == "drug/event":
-        return client.query_adverse_events(params.get("drug_name", ""), params.get("limit", 100))
-    elif endpoint == "drug/label":
-        return client.query_drug_labels(params.get("drug_name", ""), params.get("sections"))
-    elif endpoint == "drug/enforcement":
-        return client.query_drug_recalls(params.get("drug_name", ""), params.get("classification"))
-    else:
-        raise ValueError(f"Unsupported FDA API endpoint: {endpoint}")
 
 
 # Main OpenFDA Integration Functions
