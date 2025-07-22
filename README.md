@@ -101,6 +101,10 @@ export AWS_BEARER_TOKEN_BEDROCK="YOUR_BEDROCK_API_KEY" # optional for AWS Bedroc
 export AWS_REGION="us-east-1" # optional, defaults to us-east-1 for Bedrock
 ```
 
+#### ⚠️ Known Package Conflicts
+
+Some Python packages are not installed by default in the Biomni environment due to dependency conflicts. If you need these features, you must install the packages manually and may need to uncomment relevant code in the codebase. See the up-to-date list and details in [docs/known_conflicts.md](./docs/known_conflicts.md).
+
 ### Basic Usage
 
 Once inside the environment, you can start using Biomni:
