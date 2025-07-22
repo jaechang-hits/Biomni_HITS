@@ -129,8 +129,8 @@ agent.add_mcp(config_path="./mcp_config.yaml")
 agent.go("Find FDA active ingredient information for ibuprofen")
 ```
 
-**Built-in MCP Servers:**  
-For usage and implementation details, see [`tutorials/examples/mcp_example.ipynb`](tutorials/examples/mcp_example.ipynb). 
+**Built-in MCP Servers:**
+For usage and implementation details, see [`tutorials/examples/mcp_example.ipynb`](tutorials/examples/mcp_example.ipynb).
 
 ## 🤝 Contributing to Biomni
 
