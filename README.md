@@ -90,11 +90,8 @@ agent.add_mcp(config_path="./mcp_config.yaml")
 agent.go("Find FDA active ingredient information for ibuprofen")
 ```
 
-**Built-in MCP Servers:**
-- **tooluniverse_mcp**: All 211 FDA drug tools from [ToolUniverse](https://github.com/mims-harvard/ToolUniverse)
-- **pubmed_mcp**: PubMed search (reference implementation)
-
-See `tutorials/examples/mcp_example.ipynb` for configuration examples.
+**Built-in MCP Servers:**  
+For usage and implementation details, see [`tutorials/examples/mcp_example.ipynb`](tutorials/examples/mcp_example.ipynb). 
 
 ## 🤝 Contributing to Biomni
 
@@ -145,6 +142,7 @@ Experience Biomni through our no-code web interface at **[biomni.stanford.edu](h
 - [ ] 8 Real-world research task benchmark/leaderboard release
 - [ ] A tutorial on how to contribute to Biomni
 - [ ] A tutorial on baseline agents
+- [x] MCP support
 - [x] Biomni A1+E1 release
 
 ## Important Note
