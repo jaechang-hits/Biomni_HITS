@@ -2613,6 +2613,90 @@ def query_opentarget(
 
     return api_result
 
+# Monarch Initiative integration
+def query_monarch(
+    prompt=None,
+    endpoint=None,
+    api_key=None,
+    model="claude-3-5-haiku-20241022",
+    max_results=5,
+    verbose=True,
+):
+    """Query the Monarch Initiative API using natural language or a direct endpoint.
+
+    Parameters
+    ----------
+    prompt (str, optional): Natural language query about genes, diseases, phenotypes, etc.
+    endpoint (str, optional): Direct Monarch API endpoint or full URL
+    api_key (str, optional): Anthropic API key. If None, will use ANTHROPIC_API_KEY env variable
+    model (str): Anthropic model to use for prompt-to-endpoint conversion
+    max_results (int): Maximum number of results to return (if supported by endpoint)
+    verbose (bool): Whether to return detailed results
+
+    Returns
+    -------
+    dict: Dictionary containing the query results or error information
+
+    Examples
+    --------
+    - Natural language: query_monarch("Find phenotypes associated with BRCA1")
+    - Direct endpoint: query_monarch(endpoint="https://api.monarchinitiative.org/api/bioentity/gene/NCBIGene:672/phenotypes")
+    """
+    base_url = "https://api.monarchinitiative.org/api"
+
+    if prompt is None and endpoint is None:
+        return {"error": "Either a prompt or an endpoint must be provided"}
+
+    # If using prompt, use Claude to generate the endpoint
+    if prompt:
+        schema_path = os.path.join(os.path.dirname(__file__), "schema_db", "monarch.pkl")
+        if os.path.exists(schema_path):
+            with open(schema_path, "rb") as f:
+                monarch_schema = pickle.load(f)
+        else:
+            monarch_schema = None
+
+        system_template = """
+        You are a biomedical knowledge graph expert specialized in using the Monarch Initiative API.\n\nBased on the user's natural language request, determine the appropriate Monarch API endpoint and parameters.\n\nMONARCH API SCHEMA:\n{schema}\n\nYour response should be a JSON object with the following fields:\n1. \"full_url\": The complete URL to query (including the base URL \"https://api.monarchinitiative.org/api\" and any parameters)\n2. \"description\": A brief description of what the query is doing\n\nSPECIAL NOTES:\n- For gene queries, use NCBI Gene IDs (e.g., NCBIGene:672 for BRCA1)\n- For disease queries, use MONDO IDs (e.g., MONDO:0005148 for breast cancer)\n- For phenotype queries, use HPO IDs (e.g., HP:0001250)\n- Common endpoints: /bioentity/gene/{id}/phenotypes, /bioentity/disease/{id}/genes, /bioentity/phenotype/{id}/diseases\n- Use max_results to limit the number of returned items if supported\n\nReturn ONLY the JSON object with no additional text.\n        """
+        claude_result = _query_claude_for_api(
+            prompt=prompt,
+            schema=monarch_schema,
+            system_template=system_template,
+            api_key=api_key,
+            model=model,
+        )
+        if not claude_result["success"]:
+            return claude_result
+        query_info = claude_result["data"]
+        endpoint = query_info.get("full_url", "")
+        description = query_info.get("description", "")
+        if not endpoint:
+            return {
+                "error": "Failed to generate a valid endpoint from the prompt",
+                "claude_response": claude_result.get("raw_response", "No response"),
+            }
+    else:
+        # Use provided endpoint directly
+        if endpoint.startswith("/"):
+            endpoint = f"{base_url}{endpoint}"
+        elif not endpoint.startswith("http"):
+            endpoint = f"{base_url}/{endpoint.lstrip('/')}"
+        description = "Direct query to Monarch API"
+
+    # Add max_results as a query parameter if not already present
+    if "?" in endpoint:
+        if "rows=" not in endpoint and "limit=" not in endpoint:
+            endpoint += f"&rows={max_results}"
+    else:
+        endpoint += f"?rows={max_results}"
+
+    api_result = _query_rest_api(endpoint=endpoint, method="GET", description=description)
+
+    if not verbose and "success" in api_result and api_result["success"] and "result" in api_result:
+        return _format_query_results(api_result["result"])
+
+    return api_result
+
 
 def query_gwas_catalog(
     prompt=None,
