@@ -2613,6 +2613,7 @@ def query_opentarget(
 
     return api_result
 
+
 # Monarch Initiative integration
 def query_monarch(
     prompt=None,
