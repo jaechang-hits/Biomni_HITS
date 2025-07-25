@@ -74,9 +74,11 @@ def get_llm(
             stop_sequences=stop_sequences,
         )
     elif source == "Gemini":
+        # If you want to use ChatGoogleGenerativeAI, you need to pass the stop sequences upon invoking the model.
         # return ChatGoogleGenerativeAI(
         #     model=model,
         #     temperature=temperature,
+        #     google_api_key=api_key,
         # )
         return ChatOpenAI(
             model=model,
