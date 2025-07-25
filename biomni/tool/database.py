@@ -2618,7 +2618,7 @@ def query_monarch(
     api_key=None,
     model="claude-3-5-haiku-20241022",
     max_results=2,
-    verbose=True,
+    verbose=False,
 ):
     """Query the Monarch Initiative API using natural language or a direct endpoint.
 
