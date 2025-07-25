@@ -26,7 +26,9 @@
 
 ## Overview
 
+
 Biomni is a general-purpose biomedical AI agent designed to autonomously execute a wide range of research tasks across diverse biomedical subfields. By integrating cutting-edge large language model (LLM) reasoning with retrieval-augmented planning and code-based execution, Biomni helps scientists dramatically enhance research productivity and generate testable hypotheses.
+
 
 ## Quick Start
 
@@ -54,6 +56,9 @@ pip install git+https://github.com/snap-stanford/Biomni.git@main
 ```
 
 Lastly, configure your API keys using one of the following methods:
+
+<details>
+<summary>Click to expand</summary>
 
 #### Option 1: Using .env file (Recommended)
 
@@ -101,6 +106,11 @@ export AWS_BEARER_TOKEN_BEDROCK="YOUR_BEDROCK_API_KEY" # optional for AWS Bedroc
 export AWS_REGION="us-east-1" # optional, defaults to us-east-1 for Bedrock
 export GEMINI_API_KEY="YOUR_GEMINI_API_KEY" #optional if you want to use a gemini model
 ```
+</details>
+
+#### ⚠️ Known Package Conflicts
+
+Some Python packages are not installed by default in the Biomni environment due to dependency conflicts. If you need these features, you must install the packages manually and may need to uncomment relevant code in the codebase. See the up-to-date list and details in [docs/known_conflicts.md](./docs/known_conflicts.md).
 
 ### Basic Usage
 
