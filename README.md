@@ -57,6 +57,9 @@ pip install git+https://github.com/snap-stanford/Biomni.git@main
 
 Lastly, configure your API keys using one of the following methods:
 
+<details>
+<summary>Click to expand</summary>
+  
 #### Option 1: Using .env file (Recommended)
 
 Create a `.env` file in your project directory:
@@ -102,6 +105,11 @@ export OPENAI_API_KEY="YOUR_API_KEY" # optional if you just use Claude
 export AWS_BEARER_TOKEN_BEDROCK="YOUR_BEDROCK_API_KEY" # optional for AWS Bedrock models
 export AWS_REGION="us-east-1" # optional, defaults to us-east-1 for Bedrock
 ```
+</details>
+
+#### ⚠️ Known Package Conflicts
+
+Some Python packages are not installed by default in the Biomni environment due to dependency conflicts. If you need these features, you must install the packages manually and may need to uncomment relevant code in the codebase. See the up-to-date list and details in [docs/known_conflicts.md](./docs/known_conflicts.md).
 
 ### Basic Usage
 
