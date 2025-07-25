@@ -26,7 +26,9 @@
 
 ## Overview
 
+
 Biomni is a general-purpose biomedical AI agent designed to autonomously execute a wide range of research tasks across diverse biomedical subfields. By integrating cutting-edge large language model (LLM) reasoning with retrieval-augmented planning and code-based execution, Biomni helps scientists dramatically enhance research productivity and generate testable hypotheses.
+
 
 ## Quick Start
 
@@ -57,7 +59,7 @@ Lastly, configure your API keys using one of the following methods:
 
 <details>
 <summary>Click to expand</summary>
-  
+
 #### Option 1: Using .env file (Recommended)
 
 Create a `.env` file in your project directory:
