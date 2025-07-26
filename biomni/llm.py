@@ -46,10 +46,10 @@ def get_llm(
         elif base_url is not None:
             source = "Custom"
         elif (
-            "/" in model or
-            any(
-                name in model.lower() and "groq" not in model.lower()
-                for name in ["llama", "mistral", "qwen", "gemma", "phi", "dolphin", "orca", "vicuna"]
+            "/" in model
+            or (
+                any(name in model.lower() for name in ["llama", "mistral", "qwen", "gemma", "phi", "dolphin", "orca", "vicuna"])
+                and "groq" not in model.lower()
             )
         ):
             source = "Ollama"
@@ -93,11 +93,6 @@ def get_llm(
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
             stop_sequences=stop_sequences,
         )
-    elif source == "Ollama":
-        return ChatOllama(
-            model=model,
-            temperature=temperature,
-        )
     elif source == "Groq":
         return ChatOpenAI(
             model=model,
@@ -106,6 +101,12 @@ def get_llm(
             base_url="https://api.groq.com/openai/v1",
             stop_sequences=stop_sequences,
         )
+    elif source == "Ollama":
+        return ChatOllama(
+            model=model,
+            temperature=temperature,
+        )
+
     # elif source == "Bedrock":
     #     return ChatBedrock(
     #         model=model,
