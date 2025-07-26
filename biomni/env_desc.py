@@ -79,6 +79,8 @@ data_lake_dict = {
     "proteinatlas.tsv": "Protein expression data from Human Protein Atlas.",
     "proximity_label-ms.parquet": "Protein interactions via proximity labeling and mass spectrometry.",
     "reconstituted_complex.parquet": "Protein complexes reconstituted in vitro.",
+    "sgRNA_KO_SP_mouse.txt": "sgRNA knockout data for mouse.",
+    "sgRNA_KO_SP_human.txt": "sgRNA knockout data for human.",
     "synthetic_growth_defect.parquet": "Synthetic growth defects from genetic interactions.",
     "synthetic_lethality.parquet": "Synthetic lethal interactions.",
     "synthetic_rescue.parquet": "Genetic interactions rescuing phenotypes.",
