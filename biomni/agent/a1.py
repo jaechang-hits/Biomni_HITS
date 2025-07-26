@@ -54,6 +54,7 @@ class A1:
         Args:
             path: Path to the data
             llm: LLM to use for the agent
+            source (str): Source provider: "OpenAI", "AzureOpenAI", "Anthropic", "Ollama", "Gemini", "Bedrock", or "Custom"
             use_tool_retriever: If True, use a tool retriever
             timeout_seconds: Timeout for code execution in seconds
             base_url: Base URL for custom model serving (e.g., "http://localhost:8000/v1")
