@@ -10,7 +10,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
 
-SourceType = Literal["OpenAI", "AzureOpenAI", "Anthropic", "Ollama", "Gemini", "Bedrock", "Custom"]
+SourceType = Literal["OpenAI", "AzureOpenAI", "Anthropic", "Ollama", "Gemini", "Bedrock", "Groq", "Custom"]
 
 
 def get_llm(
@@ -41,6 +41,8 @@ def get_llm(
             source = "OpenAI"
         elif model[:7] == "gemini-":
             source = "Gemini"
+        elif "groq" in model.lower():
+            source = "Groq"
         elif base_url is not None:
             source = "Custom"
         elif "/" in model or any(
@@ -91,6 +93,14 @@ def get_llm(
         return ChatOllama(
             model=model,
             temperature=temperature,
+        )
+    elif source == "Groq":
+        return ChatOpenAI(
+            model=model,
+            temperature=temperature,
+            api_key=os.getenv("GROQ_API_KEY"),
+            base_url="https://api.groq.com/openai/v1",
+            stop_sequences=stop_sequences,
         )
     # elif source == "Bedrock":
     #     return ChatBedrock(
