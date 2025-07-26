@@ -98,7 +98,7 @@ def get_llm(
             model=model,
             temperature=temperature,
             api_key=os.getenv("GROQ_API_KEY"),
-            base_url="https://api.groq.com/openai/v1",
+            base_url="https://api.groq.com/openai/v1/models",
             stop_sequences=stop_sequences,
         )
     elif source == "Ollama":
