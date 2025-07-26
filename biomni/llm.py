@@ -13,6 +13,7 @@ from langchain_openai import AzureChatOpenAI, ChatOpenAI
 SourceType = Literal["OpenAI", "AzureOpenAI", "Anthropic", "Ollama", "Gemini", "Bedrock", "Groq", "Custom"]
 ALLOWED_SOURCES: set[str] = set(SourceType.__args__)
 
+
 def get_llm(
     model: str = "claude-3-5-sonnet-20241022",
     temperature: float = 0.7,
@@ -49,10 +50,10 @@ def get_llm(
                 source = "Groq"
             elif base_url is not None:
                 source = "Custom"
-            elif (
-                "/" in model
-                or (
-                    any(name in model.lower() for name in ["llama", "mistral", "qwen", "gemma", "phi", "dolphin", "orca", "vicuna"])
+            elif "/" in model or (
+                any(
+                    name in model.lower()
+                    for name in ["llama", "mistral", "qwen", "gemma", "phi", "dolphin", "orca", "vicuna"]
                 )
             ):
                 source = "Ollama"

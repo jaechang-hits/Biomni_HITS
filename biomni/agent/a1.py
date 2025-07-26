@@ -12,7 +12,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from biomni.env_desc import data_lake_dict, library_content_dict
-from biomni.llm import get_llm, SourceType
+from biomni.llm import SourceType, get_llm
 from biomni.model.retriever import ToolRetriever
 from biomni.tool.support_tools import run_python_repl
 from biomni.tool.tool_registry import ToolRegistry
@@ -105,7 +105,9 @@ class A1:
         self.path = os.path.join(path, "biomni_data")
         module2api = read_module2api()
 
-        self.llm = get_llm(llm, stop_sequences=["</execute>", "</solution>"], source=source, base_url=base_url, api_key=api_key)
+        self.llm = get_llm(
+            llm, stop_sequences=["</execute>", "</solution>"], source=source, base_url=base_url, api_key=api_key
+        )
         self.module2api = module2api
         self.use_tool_retriever = use_tool_retriever
 
