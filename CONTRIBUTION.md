@@ -41,7 +41,7 @@ If the data source has web API, follow this process:
 1. **Verify uniqueness** - ensure no overlap with existing data
 2. **Add a new query_XX function** to `biomni/tool/database.py`, follow the format from the other functions.
 3. **Create a tool description** in `biomni/tool/tool_description/database.py` following the existing format
-   
+
 If the data source has no API access, follow the process below:
 
 **Steps:**
