@@ -78,12 +78,12 @@ class A1:
 
         # Check and download missing data lake files
         print("Checking and downloading missing data lake files...")
-        # check_and_download_s3_files(
-        #     s3_bucket_url="https://biomni-release.s3.amazonaws.com",
-        #     local_data_lake_path=data_lake_dir,
-        #     expected_files=expected_data_lake_files,
-        #     folder="data_lake",
-        # )
+        check_and_download_s3_files(
+            s3_bucket_url="https://biomni-release.s3.amazonaws.com",
+            local_data_lake_path=data_lake_dir,
+            expected_files=expected_data_lake_files,
+            folder="data_lake",
+        )
 
         # Check if benchmark directory structure is complete
         benchmark_ok = False
@@ -94,12 +94,12 @@ class A1:
 
         if not benchmark_ok:
             print("Checking and downloading benchmark files...")
-            # check_and_download_s3_files(
-            #     s3_bucket_url="https://biomni-release.s3.amazonaws.com",
-            #     local_data_lake_path=benchmark_dir,
-            #     expected_files=[],  # Empty list - will download entire folder
-            #     folder="benchmark",
-            # )
+            check_and_download_s3_files(
+                s3_bucket_url="https://biomni-release.s3.amazonaws.com",
+                local_data_lake_path=benchmark_dir,
+                expected_files=[],  # Empty list - will download entire folder
+                folder="benchmark",
+            )
 
         self.path = os.path.join(path, "biomni_data")
         module2api = read_module2api()

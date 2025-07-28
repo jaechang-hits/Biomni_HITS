@@ -1,4 +1,4 @@
-# MCP Server Config
+# MCP Server Config for Biomni
 
 mcp_servers:
   # GitHub MCP Server (Docker approach - recommended)
