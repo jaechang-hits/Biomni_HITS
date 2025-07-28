@@ -147,7 +147,7 @@ The MCP server can be configured with various options:
 # Create server with specific modules
 mcp = agent.create_mcp_server(tool_modules=[
     "biomni.tool.genetics",
-    "biomni.tool.database", 
+    "biomni.tool.database",
     "biomni.tool.cell_biology"
 ])
 
@@ -262,7 +262,7 @@ The Biomni repository includes complete examples in the `tutorials/examples/` di
   - `mcp_config.yaml` - Example configuration file
   - `mcp_example.ipynb` - Jupyter notebook demonstrating usage
 
-#### Exposing Biomni as MCP Server  
+#### Exposing Biomni as MCP Server
 - **Location**: `tutorials/examples/expose_biomni_server/`
 - **Files**:
   - `run_mcp_server.py` - Script to run Biomni MCP server
@@ -306,7 +306,7 @@ TEST_ARGS = {"prompt": "Find information about human insulin protein"}
 
 async def test_single_tool():
     """Test a single tool in the Biomni MCP server."""
-    
+
     # Set up the server parameters
     import os
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -315,24 +315,24 @@ async def test_single_tool():
 
     try:
         print("🔌 Connecting to MCP server...")
-        
+
         # Connect to the server
         async with stdio_client(server_params) as (reader, writer):
             async with ClientSession(reader, writer) as session:
                 # Initialize the session
                 await session.initialize()
                 print("✅ Connected to MCP server")
-                
+
                 # List available tools
                 response = await session.list_tools()
                 tools = response.tools
                 print(f"✅ Found {len(tools)} tools")
-                
+
                 # Test the tool
                 result = await session.call_tool(TOOL_TO_TEST, TEST_ARGS)
                 print("✅ Tool call successful!")
                 print(f"📄 Result: {result.content[0].text}")
-                
+
     except Exception as e:
         print(f"❌ Failed to connect to MCP server: {e}")
         return False
@@ -344,4 +344,4 @@ if __name__ == "__main__":
 
 ## Conclusion
 
-Biomni's MCP integration provides a powerful way to extend its capabilities with external tools and services, while also making Biomni tools available to the broader MCP ecosystem. This enables seamless interoperability and allows you to build sophisticated AI workflows that combine the best of multiple tool ecosystems. 
+Biomni's MCP integration provides a powerful way to extend its capabilities with external tools and services, while also making Biomni tools available to the broader MCP ecosystem. This enables seamless interoperability and allows you to build sophisticated AI workflows that combine the best of multiple tool ecosystems.
