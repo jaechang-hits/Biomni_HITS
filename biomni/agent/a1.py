@@ -388,32 +388,40 @@ class A1:
             server_module = sys.modules[mcp_module_name]
 
             
-
-            try:
-                server_params = StdioServerParameters(
-                    command=cmd, 
-                    args=args,
-                    env=env_vars
-                )
-                tools_config = discover_mcp_tools_sync(server_params)
-                
-                if tools_config:
-                    print(f"Discovered {len(tools_config)} tools from {server_name} MCP server")
-                else:
-                    print(f"Warning: No tools discovered from {server_name} MCP server")
-                    continue
+            tools_config = server_meta.get("tools", [])
+            
+            if not tools_config:
+                try:
+                    server_params = StdioServerParameters(
+                        command=cmd, 
+                        args=args,
+                        env=env_vars
+                    )
+                    tools_config = discover_mcp_tools_sync(server_params)
                     
-            except Exception as e:
-                print(f"Failed to discover tools for {server_name}: {e}")
-                continue
+                    if tools_config:
+                        print(f"Discovered {len(tools_config)} tools from {server_name} MCP server")
+                    else:
+                        print(f"Warning: No tools discovered from {server_name} MCP server")
+                        continue
+                        
+                except Exception as e:
+                    print(f"Failed to discover tools for {server_name}: {e}")
+                    continue
 
             # Register each tool
             for tool_meta in tools_config:
-                # Auto-discovered tool
-                tool_name = tool_meta.get("name")
-                description = tool_meta.get("description", f"MCP tool: {tool_name}")
-                parameters = tool_meta.get("inputSchema", {}).get("properties", {})
-                
+                if isinstance(tool_meta, dict) and "biomni_name" in tool_meta:
+                    # Manual tool definition
+                    tool_name = tool_meta.get("biomni_name")
+                    description = tool_meta.get("description", f"MCP tool: {tool_name}")
+                    parameters = tool_meta.get("parameters", {})
+                else:
+                    # Auto-discovered tool
+                    tool_name = tool_meta.get("name")
+                    description = tool_meta.get("description", f"MCP tool: {tool_name}")
+                    parameters = tool_meta.get("inputSchema", {}).get("properties", {})
+                    
                 if not tool_name:
                     print(f"Warning: Skipping tool with no name in {server_name}")
                     continue

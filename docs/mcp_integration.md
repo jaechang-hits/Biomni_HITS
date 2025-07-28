@@ -44,8 +44,25 @@ mcp_servers:
     description: "Official GitHub MCP server for repository and issue management"
     env:
       GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
+
+  # Custom Local MCP Server - Only add tools necessary
+  pubmed:
+    command: ["python", "-m", "biomni.tool.mcp_tools.pubmed_mcp"]
+    enabled: true
+    tools:
+      - biomni_name: search_pubmed
+        description: "Search PubMed"
+        parameters:
+          query: {type: str, required: true,  description: "PubMed search term"}
+          max_results:  {type: int, required: false, default: 10, description: "Maximum number of hits"}
+      - biomni_name: get_article_abstract
+        description: "Fetch PubMed abstract"
+        parameters:
+          pmid: {type: str, required: true, description: "PubMed ID"}
   
 ```
+
+You can also create custom MCP servers and define your own tools by implementing the MCP protocol and adding them to your configuration file.
 
 ### Using the `add_mcp` Method
 
