@@ -59,7 +59,7 @@ mcp_servers:
         description: "Fetch PubMed abstract"
         parameters:
           pmid: {type: str, required: true, description: "PubMed ID"}
-  
+
 ```
 
 You can also create custom MCP servers and define your own tools by implementing the MCP protocol and adding them to your configuration file.

@@ -386,24 +386,19 @@ class A1:
                 sys.modules[mcp_module_name] = types.ModuleType(mcp_module_name)
             server_module = sys.modules[mcp_module_name]
 
-            
             tools_config = server_meta.get("tools", [])
-            
+
             if not tools_config:
                 try:
-                    server_params = StdioServerParameters(
-                        command=cmd, 
-                        args=args,
-                        env=env_vars
-                    )
+                    server_params = StdioServerParameters(command=cmd, args=args, env=env_vars)
                     tools_config = discover_mcp_tools_sync(server_params)
-                    
+
                     if tools_config:
                         print(f"Discovered {len(tools_config)} tools from {server_name} MCP server")
                     else:
                         print(f"Warning: No tools discovered from {server_name} MCP server")
                         continue
-                        
+
                 except Exception as e:
                     print(f"Failed to discover tools for {server_name}: {e}")
                     continue
@@ -420,7 +415,7 @@ class A1:
                     tool_name = tool_meta.get("name")
                     description = tool_meta.get("description", f"MCP tool: {tool_name}")
                     parameters = tool_meta.get("inputSchema", {}).get("properties", {})
-                    
+
                 if not tool_name:
                     print(f"Warning: Skipping tool with no name in {server_name}")
                     continue
