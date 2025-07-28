@@ -276,28 +276,31 @@ class A1:
         def discover_mcp_tools_sync(server_params: StdioServerParameters) -> list[dict]:
             """Discover available tools from MCP server synchronously."""
             try:
+
                 async def _discover_async():
                     async with stdio_client(server_params) as (reader, writer):
                         async with ClientSession(reader, writer) as session:
                             await session.initialize()
-                            
+
                             # Get available tools
                             tools_result = await session.list_tools()
-                            tools = tools_result.tools if hasattr(tools_result, 'tools') else tools_result
-                            
+                            tools = tools_result.tools if hasattr(tools_result, "tools") else tools_result
+
                             discovered_tools = []
                             for tool in tools:
-                                if hasattr(tool, 'name'):
-                                    discovered_tools.append({
-                                        "name": tool.name,
-                                        "description": tool.description,
-                                        "inputSchema": tool.inputSchema
-                                    })
+                                if hasattr(tool, "name"):
+                                    discovered_tools.append(
+                                        {
+                                            "name": tool.name,
+                                            "description": tool.description,
+                                            "inputSchema": tool.inputSchema,
+                                        }
+                                    )
                                 else:
                                     print(f"Warning: Skipping tool with no name attribute: {tool}")
-                            
+
                             return discovered_tools
-                
+
                 return asyncio.run(_discover_async())
             except Exception as e:
                 print(f"Failed to discover tools: {e}")
@@ -305,15 +308,11 @@ class A1:
 
         def make_mcp_wrapper(cmd: str, args: list[str], tool_name: str, doc: str, env_vars: dict = None):
             """Create a synchronous wrapper for an async MCP tool call."""
-            
+
             def sync_tool_wrapper(**kwargs):
                 """Synchronous wrapper for MCP tool execution."""
                 try:
-                    server_params = StdioServerParameters(
-                        command=cmd, 
-                        args=args,
-                        env=env_vars
-                    )
+                    server_params = StdioServerParameters(command=cmd, args=args, env=env_vars)
 
                     async def async_tool_call():
                         async with stdio_client(server_params) as (reader, writer):
@@ -387,22 +386,16 @@ class A1:
                 sys.modules[mcp_module_name] = types.ModuleType(mcp_module_name)
             server_module = sys.modules[mcp_module_name]
 
-            
-
             try:
-                server_params = StdioServerParameters(
-                    command=cmd, 
-                    args=args,
-                    env=env_vars
-                )
+                server_params = StdioServerParameters(command=cmd, args=args, env=env_vars)
                 tools_config = discover_mcp_tools_sync(server_params)
-                
+
                 if tools_config:
                     print(f"Discovered {len(tools_config)} tools from {server_name} MCP server")
                 else:
                     print(f"Warning: No tools discovered from {server_name} MCP server")
                     continue
-                    
+
             except Exception as e:
                 print(f"Failed to discover tools for {server_name}: {e}")
                 continue
@@ -413,7 +406,7 @@ class A1:
                 tool_name = tool_meta.get("name")
                 description = tool_meta.get("description", f"MCP tool: {tool_name}")
                 parameters = tool_meta.get("inputSchema", {}).get("properties", {})
-                
+
                 if not tool_name:
                     print(f"Warning: Skipping tool with no name in {server_name}")
                     continue
@@ -433,7 +426,7 @@ class A1:
                         "description": param_spec.get("description", ""),
                         "default": param_spec.get("default", None),
                     }
-                    
+
                     if param_spec.get("required", False):
                         required_params.append(param_info)
                     else:
