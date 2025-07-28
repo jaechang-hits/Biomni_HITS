@@ -30,6 +30,7 @@ examples/*.fa
 scratch/
 packages/
 data
+dataset
 logs
 scripts/gradio
 data_lake
