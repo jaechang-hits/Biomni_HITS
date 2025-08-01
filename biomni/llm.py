@@ -3,7 +3,6 @@ from typing import Literal, Optional
 
 import openai
 from langchain_anthropic import ChatAnthropic
-
 # from langchain_aws import ChatBedrock
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -39,6 +38,8 @@ def get_llm(
             source = "Anthropic"
         elif model[:4] == "gpt-":
             source = "OpenAI"
+        elif model.startswith("azure-"):
+            source = "AzureOpenAI"
         elif model[:7] == "gemini-":
             source = "Gemini"
         elif base_url is not None:
@@ -59,6 +60,7 @@ def get_llm(
         return ChatOpenAI(model=model, temperature=temperature, stop_sequences=stop_sequences)
     elif source == "AzureOpenAI":
         API_VERSION = "2024-12-01-preview"
+        model = model.replace('azure-', '')
         return AzureChatOpenAI(
             openai_api_key=os.getenv("OPENAI_API_KEY"),
             azure_endpoint=os.getenv("OPENAI_ENDPOINT"),
