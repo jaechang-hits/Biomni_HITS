@@ -14,8 +14,8 @@ NC='\033[0m' # No Color
 DEFAULT_TOOLS_DIR="$(pwd)/biomni_tools"
 TOOLS_DIR=""
 
-# Install gcc before conda install 
-sudo apt-get install build-essential python3-dev  
+# Install gcc before conda install
+sudo apt-get install build-essential python3-dev
 # Install unzip
 sudo apt-get install unzip
 
