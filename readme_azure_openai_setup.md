@@ -52,4 +52,3 @@ The system will:
 	•	Azure OpenAI requires the deployment name (gpt-4o, gpt-35-turbo, etc.), not the model name (gpt-4, etc.)
 	•	Do not use gpt-4o without the azure- prefix unless calling the OpenAI API directly
 	•	Supports fallback to other providers (Anthropic, Gemini, Ollama, etc.) based on model name heuristics
-
