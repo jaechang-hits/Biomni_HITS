@@ -142,7 +142,7 @@ agent.go("Predict ADMET properties for this compound: CC(C)CC1=CC=C(C=C1)C(C)C(=
 
 The framework will automatically infer the correct LLM backend based on the model name:
 
-✅ For Azure, always prefix the model name with azure-, e.g., azure-gpt-4o, azure-gpt-35-turbo. Example Usage: 
+✅ For Azure, always prefix the model name with azure-, e.g., azure-gpt-4o, azure-gpt-35-turbo. Example Usage:
 
 ```python
 from biomni.agent import A1
