@@ -46,11 +46,10 @@ async def test_single_tool():
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
     server_script = os.path.join(current_dir, "run_mcp_server.py")
-    
+
     # Ensure environment variables are passed to the subprocess
     env = os.environ.copy()
     server_params = StdioServerParameters(command="python", args=[server_script], env=env)
-
 
     try:
         print("🔌 Connecting to MCP server...")
