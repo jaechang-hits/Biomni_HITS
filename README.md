@@ -147,6 +147,7 @@ agent.go("Plan a CRISPR screen to identify genes that regulate T cell exhaustion
 agent.go("Perform scRNA-seq annotation at [PATH] and generate meaningful hypothesis")
 agent.go("Predict ADMET properties for this compound: CC(C)CC1=CC=C(C=C1)C(C)C(=O)O")
 ```
+If you plan on using Azure for your model, always prefix the model name with azure- (e.g. llm='azure-gpt-4o').
 
 ## MCP (Model Context Protocol) Support
 
@@ -159,8 +160,6 @@ agent = A1()
 agent.add_mcp(config_path="./mcp_config.yaml")
 agent.go("Find FDA active ingredient information for ibuprofen")
 ```
-
-If you plan on using Azure for your model, always prefix the model name with azure- (e.g. llm='azure-gpt-4o').
 
 
 **Built-in MCP Servers:**
