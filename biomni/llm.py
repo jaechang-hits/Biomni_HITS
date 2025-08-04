@@ -50,11 +50,9 @@ def get_llm(
                 source = "Groq"
             elif base_url is not None:
                 source = "Custom"
-            elif "/" in model or (
-                any(
-                    name in model.lower()
-                    for name in ["llama", "mistral", "qwen", "gemma", "phi", "dolphin", "orca", "vicuna"]
-                )
+            elif "/" in model or any(
+                name in model.lower()
+                for name in ["llama", "mistral", "qwen", "gemma", "phi", "dolphin", "orca", "vicuna", "deepseek"]
             ):
                 source = "Ollama"
             elif model.startswith(
