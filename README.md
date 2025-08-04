@@ -118,6 +118,7 @@ export OPENAI_ENDPOINT="https://your-resource-name.openai.azure.com/"
 ```
 </details>
 
+
 #### ⚠️ Known Package Conflicts
 
 Some Python packages are not installed by default in the Biomni environment due to dependency conflicts. If you need these features, you must install the packages manually and may need to uncomment relevant code in the codebase. See the up-to-date list and details in [docs/known_conflicts.md](./docs/known_conflicts.md).
@@ -138,18 +139,7 @@ agent.go("Perform scRNA-seq annotation at [PATH] and generate meaningful hypothe
 agent.go("Predict ADMET properties for this compound: CC(C)CC1=CC=C(C=C1)C(C)C(=O)O")
 ```
 
-### ✅ How to Specify a Model if using Azure OpenAI
-
-The framework will automatically infer the correct LLM backend based on the model name:
-
-✅ For Azure, always prefix the model name with azure-, e.g., azure-gpt-4o, azure-gpt-35-turbo. Example Usage:
-
-```python
-from biomni.agent import A1
-
-# Automatically uses AzureChatOpenAI when 'azure-' prefix is detected
-agent = A1(path='./data', llm='azure-gpt-4o')
-```
+If you plan on using Azure for your model, always prefix the model name with azure- (e.g. llm='azure-gpt-4o').
 
 ## 🤝 Contributing to Biomni
 
