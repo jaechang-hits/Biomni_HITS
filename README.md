@@ -88,7 +88,6 @@ GROQ_API_KEY=your_groq_api_key_here
 
 # Optional: Set the source of your LLM for example:
 #"OpenAI", "AzureOpenAI", "Anthropic", "Ollama", "Gemini", "Bedrock", "Groq", "Custom"
-#In case of using Groq provider it's required to set
 LLM_SOURCE=your_LLM_source_here
 
 # Optional: AWS Bedrock Configuration (if using AWS Bedrock models)
