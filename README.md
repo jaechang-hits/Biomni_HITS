@@ -80,6 +80,10 @@ ANTHROPIC_API_KEY=your_anthropic_api_key_here
 # Optional: OpenAI API Key (if using OpenAI models)
 OPENAI_API_KEY=your_openai_api_key_here
 
+# Optional: Azure OpenAI API Key (if using Azure OpenAI models)
+OPENAI_API_KEY=your_azure_openai_api_key
+OPENAI_ENDPOINT=https://your-resource-name.openai.azure.com/
+
 # Optional: AI Studio Gemini API Key (if using Gemini models)
 GEMINI_API_KEY=your_gemini_api_key_here
 
@@ -112,13 +116,17 @@ Alternatively, configure your API keys in bash profile `~/.bashrc`:
 ```bash
 export ANTHROPIC_API_KEY="YOUR_API_KEY"
 export OPENAI_API_KEY="YOUR_API_KEY" # optional if you just use Claude
+export OPENAI_ENDPOINT="https://your-resource-name.openai.azure.com/" # optional unless you are using Azure
 export AWS_BEARER_TOKEN_BEDROCK="YOUR_BEDROCK_API_KEY" # optional for AWS Bedrock models
 export AWS_REGION="us-east-1" # optional, defaults to us-east-1 for Bedrock
 export GEMINI_API_KEY="YOUR_GEMINI_API_KEY" #optional if you want to use a gemini model
 export GROQ_API_KEY="YOUR_GROQ_API_KEY" # Optional: set this to use models served by Groq
 export LLM_SOURCE="Groq" # Optional: set this to use models served by Groq
+
+
 ```
 </details>
+
 
 #### ⚠️ Known Package Conflicts
 
@@ -154,6 +162,8 @@ agent.go("Find FDA active ingredient information for ibuprofen")
 
 **Built-in MCP Servers:**
 For usage and implementation details, see the [MCP Integration Documentation](docs/mcp_integration.md) and examples in [`tutorials/examples/add_mcp_server/`](tutorials/examples/add_mcp_server/) and [`tutorials/examples/expose_biomni_server/`](tutorials/examples/expose_biomni_server/).
+
+If you plan on using Azure for your model, always prefix the model name with azure- (e.g. llm='azure-gpt-4o').
 
 ## 🤝 Contributing to Biomni
 
