@@ -7,4 +7,3 @@
 | DDInter 2.0                               | Data Source      | `biomni/env_desc.py: data_lake_dict (all ddinter_... files)`         | OpenFDA Adverse Event API (Public Domain)                |
 | Human Protein Atlas                       | Data Source      | `biomni/env_desc.py: data_lake_dict (proteinatlas.tsv)`              | Ensembl API or UniProt API (Permissive)                  |
 | Guide to PHARMACOLOGY (GtoPdb)            | API / Database   | `biomni/tool/database.py: query_gtopdb`                              | ChEMBL API (Permissive)                                  |
-
