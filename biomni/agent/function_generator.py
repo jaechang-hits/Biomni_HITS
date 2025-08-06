@@ -1,8 +1,10 @@
 import re
+
 from biomni.llm import get_llm
 
+
 class base_agent:
-    def __init__(self, llm = 'claude-3-haiku-20240307', cheap_llm = None, tools = None, temperature=0.7):
+    def __init__(self, llm="claude-3-haiku-20240307", cheap_llm=None, tools=None, temperature=0.7):
         self.tools = tools
         self.llm = get_llm(llm, temperature)
         if cheap_llm is None:
@@ -12,19 +14,15 @@ class base_agent:
 
     def configure(self):
         pass
+
     def go(self, input):
         pass
 
-class FunctionGenerator(base_agent):
-    """Agent that generates executable Python code scripts given a task description.
-    """
 
-    def __init__(
-        self,
-        llm="claude-3-7-sonnet-20250219",
-        cheap_llm=None,
-        temperature=0.7
-    ):
+class FunctionGenerator(base_agent):
+    """Agent that generates executable Python code scripts given a task description."""
+
+    def __init__(self, llm="claude-3-7-sonnet-20250219", cheap_llm=None, temperature=0.7):
         """Initialize the PaperTaskExtractor agent.
 
         Args:
@@ -71,7 +69,7 @@ class FunctionGenerator(base_agent):
         Parameters:
         -----------
         task_description (str): task descriptions (possibly generated from previous steps)
-        
+
         max_words : int
             Maximum number of words to include in the filename.
 
@@ -81,12 +79,12 @@ class FunctionGenerator(base_agent):
             A lowercase, hyphen-free, safe filename ending in '.py'.
         """
         # Lowercase and remove non-alphanumeric (allow spaces for splitting)
-        cleaned = re.sub(r'[^a-zA-Z0-9\s]', '', task_description.lower())
-    
+        cleaned = re.sub(r"[^a-zA-Z0-9\s]", "", task_description.lower())
+
         # Tokenize and select top words
         words = cleaned.split()
         selected_words = words[:max_words] if words else ["script"]
-    
+
         # Join with underscores
         base_name = "_".join(selected_words)
         return f"{base_name}.py"
@@ -119,4 +117,3 @@ class FunctionGenerator(base_agent):
         """
         m = re.search(r"```(?:python)?\s*(.+?)\s*```", s, flags=re.DOTALL | re.IGNORECASE)
         return m.group(1).strip() if m else None
-
