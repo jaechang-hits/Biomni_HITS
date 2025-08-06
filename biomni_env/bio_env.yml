@@ -68,3 +68,11 @@ dependencies:
     - pykalman
     - community
     - fanc
+    - spatialdata
+    - muon
+    - squidpy
+    - scirpy
+    - decoupler
+    - pertpy
+    - formulaic
+    - pydeseq2
