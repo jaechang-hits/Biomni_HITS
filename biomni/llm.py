@@ -54,7 +54,18 @@ def get_llm(
                 source = "Custom"
             elif "/" in model or any(
                 name in model.lower()
-                for name in ["llama", "mistral", "qwen", "gemma", "phi", "dolphin", "orca", "vicuna", "deepseek", "gpt-oss"]
+                for name in [
+                    "llama",
+                    "mistral",
+                    "qwen",
+                    "gemma",
+                    "phi",
+                    "dolphin",
+                    "orca",
+                    "vicuna",
+                    "deepseek",
+                    "gpt-oss",
+                ]
             ):
                 source = "Ollama"
             elif model.startswith(
