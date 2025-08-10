@@ -15,7 +15,6 @@ dependencies:
   - gseapy
   - mageck
   - plannotate
-  - cnvkit=0.9.12
   - pip:
     - scanpy
     - biopython

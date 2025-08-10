@@ -924,7 +924,6 @@ def perform_gene_expression_nmf_analysis(
         pd.DataFrame(H, index=[f"Metagene_{i + 1}" for i in range(n_components)], columns=samples).to_csv(weights_file)
         log.append(f"Saved sample weights to {weights_file}")
 
-        # Find top genes for each metagene
         top_genes_file = os.path.join(output_dir, "top_genes_per_metagene.csv")
         top_genes = {}
         for i in range(n_components):
@@ -998,12 +997,13 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
     str
         Research log summarizing steps, tool executions, and findings.
     """
-    import os
-    import math
-    import shutil
-    import subprocess
     import datetime
+    import math
+    import os
+    import shutil
     import statistics
+    import subprocess
+
     import pandas as pd
 
     log = []
@@ -1021,21 +1021,40 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
 
     if focal_genes is None:
         focal_genes = ["MYC", "ERBB2", "CDKN2A"]
+    # Single informative log line (was duplicated previously)
+    log.append(f"Focal genes for analysis: {', '.join(focal_genes)}")
 
     # ----------------------------------------------------------------------------------
     # STEP 1: CNV SEGMENTATION (CNVkit preferred if installed)
     # ----------------------------------------------------------------------------------
     log.append("STEP 1: CNV Segmentation")
     cnvkit_path = shutil.which("cnvkit.py") or shutil.which("cnvkit")
-    # Removed auto-install per user request; provide advisory instead
+    use_conda_env = False
+
+    # If CNVkit not in current PATH, check if it's available in bio_env_py310
     if not cnvkit_path:
-        log.append("- CNVkit not detected. Install manually (e.g., pip install cnvkit==0.9.11) or run new_software_v005.sh.")
+        try:
+            result = subprocess.run(["conda", "run", "-n", "bio_env_py310", "which", "cnvkit.py"],
+                                  capture_output=True, text=True, check=True)
+            if result.returncode == 0 and result.stdout.strip():
+                cnvkit_path = "cnvkit.py"  # Will use via conda run
+                use_conda_env = True
+                log.append("- CNVkit found in bio_env_py310 environment")
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+
+    if not cnvkit_path:
+        log.append("- CNVkit not detected in current PATH or bio_env_py310 environment")
+        log.append("- Install manually (e.g., pip install cnvkit==0.9.11) or run setup.sh")
+
     cnvkit_cns = None
-    cnvkit_cnr = None
     try:
         if cnvkit_path:
             log.append(f"- CNVkit detected at: {cnvkit_path}")
-            batch_cmd = [cnvkit_path, "batch", tumor_bam, "-d", output_dir, "-f", reference_genome]
+            if use_conda_env:
+                batch_cmd = ["conda", "run", "-n", "bio_env_py310", cnvkit_path, "batch", tumor_bam, "-d", output_dir, "-f", reference_genome]
+            else:
+                batch_cmd = [cnvkit_path, "batch", tumor_bam, "-d", output_dir, "-f", reference_genome]
             if normal_bam:
                 batch_cmd.extend(["-n", normal_bam])
             if targets_bed:
@@ -1050,9 +1069,11 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
             except subprocess.CalledProcessError as e:
                 log.append(f"- WARNING: CNVkit batch failed: {e}. Proceeding with limited downstream analyses")
             cnvkit_cns = os.path.join(output_dir, f"{sample_name}.cns")
-            cnvkit_cnr = os.path.join(output_dir, f"{sample_name}.cnr")
             if os.path.exists(cnvkit_cns):
-                call_cmd = [cnvkit_path, "call", cnvkit_cns, "-o", os.path.join(output_dir, f"{sample_name}.call.cns"), "-m", "clonal"]
+                if use_conda_env:
+                    call_cmd = ["conda", "run", "-n", "bio_env_py310", cnvkit_path, "call", cnvkit_cns, "-o", os.path.join(output_dir, f"{sample_name}.call.cns"), "-m", "clonal"]
+                else:
+                    call_cmd = [cnvkit_path, "call", cnvkit_cns, "-o", os.path.join(output_dir, f"{sample_name}.call.cns"), "-m", "clonal"]
                 log.append(f"- Calling absolute CN: {' '.join(call_cmd)}")
                 try:
                     subprocess.run(call_cmd, check=True, capture_output=True)
@@ -1064,7 +1085,7 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
                 log.append("- WARNING: Expected CNVkit .cns file not found")
         else:
             log.append("- CNVkit not found; skipping CNVkit segmentation")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         log.append(f"- ERROR: Unexpected error during CNVkit step: {e}")
 
     # ----------------------------------------------------------------------------------
@@ -1095,7 +1116,7 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
                 log.append("- FACETS segmentation output detected")
             else:
                 log.append("- WARNING: FACETS output not generated (wrapper is placeholder)")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log.append(f"- WARNING: FACETS step error: {e}")
     else:
         if not normal_bam:
@@ -1140,7 +1161,6 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
                 if candidate in cols:
                     log2_col = candidate
                     break
-            length = None
             for candidate in ["end", "chromend", "stop"]:
                 if candidate in cols:
                     end_col = candidate
@@ -1165,7 +1185,7 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
                 log.append("- WARNING: Could not identify necessary columns for purity/ploidy estimation")
         else:
             log.append("- No segmentation available for purity/ploidy estimation")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         log.append(f"- ERROR: Purity/ploidy estimation failed: {e}")
 
     # ----------------------------------------------------------------------------------
@@ -1199,7 +1219,7 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
             log.append("- NOTE: For clinical/research use, apply scarHRD or HRDetect with allele-specific data")
         else:
             log.append("- Segmentation not available; HRD approximation skipped")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         log.append(f"- ERROR: HRD approximation failed: {e}")
 
     # ----------------------------------------------------------------------------------
@@ -1220,10 +1240,13 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
                 if region.empty:
                     continue
                 r = region.iloc[0]
-                overlaps = seg_df[(seg_df['chr_norm'] == r['chr_norm']) & (seg_df[start_col] <= r['end']) & (seg_df[end_col] >= r['start'])]
+                # Ensure we work on a copy to avoid SettingWithCopyWarning
+                overlaps = seg_df[(seg_df['chr_norm'] == r['chr_norm']) & (seg_df[start_col] <= r['end']) & (seg_df[end_col] >= r['start'])].copy()
                 if not overlaps.empty and log2_col:
                     # Choose segment with largest overlap length
-                    overlaps['ov_len'] = overlaps.apply(lambda row: min(row[end_col], r['end']) - max(row[start_col], r['start']), axis=1)
+                    r_end = r['end']
+                    r_start = r['start']
+                    overlaps['ov_len'] = overlaps.apply(lambda row, r_end=r_end, r_start=r_start: min(row[end_col], r_end) - max(row[start_col], r_start), axis=1)
                     best = overlaps.sort_values('ov_len', ascending=False).iloc[0]
                     l2 = best[log2_col]
                     status = None
@@ -1243,7 +1266,7 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
                 log.append("- Skipped: gene_bed not provided")
             else:
                 log.append("- Skipped: gene_bed file not found or segmentation unavailable")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         log.append(f"- ERROR: Focal event detection failed: {e}")
 
     # ----------------------------------------------------------------------------------
@@ -1259,7 +1282,7 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
     try:
         pd.DataFrame([summary]).to_csv(summary_file, sep='\t', index=False)
         log.append(f"- Saved summary metrics: {summary_file}")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         log.append(f"- WARNING: Could not save summary file: {e}")
 
     if focal_events:
@@ -1267,7 +1290,7 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
         try:
             pd.DataFrame(focal_events, columns=['Gene','Event','Log2']).to_csv(focal_file, sep='\t', index=False)
             log.append(f"- Saved focal events: {focal_file}")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log.append(f"- WARNING: Could not save focal events file: {e}")
 
     log.append("\nNEXT STEPS:")
