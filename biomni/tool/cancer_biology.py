@@ -1006,7 +1006,7 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
     import pandas as pd
 
     log = []
-    ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log.append(f"CNVKIT COPY NUMBER ANALYSIS WORKFLOW - {ts}")
     log.append("=" * 80)
     log.append(f"Tumor BAM: {tumor_bam}")
@@ -1033,8 +1033,9 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
     # Check if CNVkit is available in biomni_e1 environment
     if not cnvkit_path:
         try:
-            result = subprocess.run(["conda", "run", "-n", "biomni_e1", "which", "cnvkit.py"],
-                                  capture_output=True, text=True, check=True)
+            result = subprocess.run(
+                ["conda", "run", "-n", "biomni_e1", "which", "cnvkit.py"], capture_output=True, text=True, check=True
+            )
             if result.returncode == 0 and result.stdout.strip():
                 cnvkit_path = "cnvkit.py"  # Will use via conda run
                 use_conda_env = True
@@ -1045,8 +1046,12 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
     # Fallback to bio_env_py310
     if not cnvkit_path:
         try:
-            result = subprocess.run(["conda", "run", "-n", "bio_env_py310", "which", "cnvkit.py"],
-                                  capture_output=True, text=True, check=True)
+            result = subprocess.run(
+                ["conda", "run", "-n", "bio_env_py310", "which", "cnvkit.py"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
             if result.returncode == 0 and result.stdout.strip():
                 cnvkit_path = "cnvkit.py"  # Will use via conda run
                 use_conda_env = True
@@ -1086,7 +1091,15 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
     # Check for CNVkit output and run call command
     cnvkit_cns = os.path.join(output_dir, f"{sample_name}.cns")
     if os.path.exists(cnvkit_cns):
-        call_cmd = env_prefix + [cnvkit_path, "call", cnvkit_cns, "-o", os.path.join(output_dir, f"{sample_name}.call.cns"), "-m", "clonal"]
+        call_cmd = env_prefix + [
+            cnvkit_path,
+            "call",
+            cnvkit_cns,
+            "-o",
+            os.path.join(output_dir, f"{sample_name}.call.cns"),
+            "-m",
+            "clonal",
+        ]
         log.append(f"- Calling absolute CN: {' '.join(call_cmd)}")
         try:
             subprocess.run(call_cmd, check=True, capture_output=True)
@@ -1108,7 +1121,7 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
     try:
         if cnvkit_cns and os.path.exists(cnvkit_cns):
             seg_source = cnvkit_cns
-            seg_df = pd.read_csv(cnvkit_cns, sep='\t')
+            seg_df = pd.read_csv(cnvkit_cns, sep="\t")
             log.append(f"- Using CNVkit segments from: {seg_source}")
 
             # Harmonize columns
@@ -1131,11 +1144,11 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
                     break
 
             if log2_col and start_col and end_col:
-                seg_df['seg_length'] = seg_df[end_col] - seg_df[start_col]
+                seg_df["seg_length"] = seg_df[end_col] - seg_df[start_col]
                 # Weighted average absolute copy ratio -> approximate ploidy baseline
                 # Convert log2 ratio to absolute copy ratio (assuming diploid baseline = 2)
-                seg_df['abs_cn'] = 2 * (2 ** seg_df[log2_col])
-                weighted_mean_cn = (seg_df['abs_cn'] * seg_df['seg_length']).sum() / seg_df['seg_length'].sum()
+                seg_df["abs_cn"] = 2 * (2 ** seg_df[log2_col])
+                weighted_mean_cn = (seg_df["abs_cn"] * seg_df["seg_length"]).sum() / seg_df["seg_length"].sum()
                 ploidy_est = weighted_mean_cn
                 # Approximate purity: higher variance in log2 ratios suggests purity; naive formula
                 mad_log2 = statistics.median([abs(x) for x in seg_df[log2_col] if not math.isnan(x)])
@@ -1155,25 +1168,29 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
     log.append("\nSTEP 3: HRD Approximation (Simplified)")
     hrd_metrics = {}
     try:
-        if seg_df is not None and 'seg_length' in seg_df:
+        if seg_df is not None and "seg_length" in seg_df:
             # Count large-scale transitions (LST proxy: adjacent segments >10 Mb with log2 change >0.2)
-            seg_df_sorted = seg_df.sort_values(by=[c for c in seg_df.columns if c.startswith('chrom') or c == 'chrom' or c == 'chromosome'][0] if any(c.startswith('chrom') for c in seg_df.columns) else seg_df.columns[0])
+            seg_df_sorted = seg_df.sort_values(
+                by=[c for c in seg_df.columns if c.startswith("chrom") or c == "chrom" or c == "chromosome"][0]
+                if any(c.startswith("chrom") for c in seg_df.columns)
+                else seg_df.columns[0]
+            )
             lst_count = 0
             prev = None
             for _, row in seg_df_sorted.iterrows():
                 if prev is not None:
-                    if row['seg_length'] >= 10_000_000 and prev['seg_length'] >= 10_000_000:
+                    if row["seg_length"] >= 10_000_000 and prev["seg_length"] >= 10_000_000:
                         if log2_col and abs(row[log2_col] - prev[log2_col]) > 0.2:
                             lst_count += 1
                 prev = row
-            hrd_metrics['LST_like'] = lst_count
+            hrd_metrics["LST_like"] = lst_count
             # HRD-LOH proxy: segments with log2 < -0.3 and length >15 Mb
             if log2_col:
-                hrd_loh = ((seg_df[log2_col] < -0.3) & (seg_df['seg_length'] > 15_000_000)).sum()
-                hrd_metrics['HRD_LOH_like'] = int(hrd_loh)
+                hrd_loh = ((seg_df[log2_col] < -0.3) & (seg_df["seg_length"] > 15_000_000)).sum()
+                hrd_metrics["HRD_LOH_like"] = int(hrd_loh)
             # Telomeric AI proxy omitted (needs allele-specific data)
             hrd_score = sum(hrd_metrics.values())
-            hrd_metrics['Simplified_HRD_score'] = hrd_score
+            hrd_metrics["Simplified_HRD_score"] = hrd_score
             log.append(f"- LST-like events: {hrd_metrics['LST_like']}")
             log.append(f"- HRD-LOH-like events: {hrd_metrics['HRD_LOH_like']}")
             log.append(f"- Simplified composite HRD score: {hrd_metrics['Simplified_HRD_score']}")
@@ -1190,31 +1207,43 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
     focal_events = []
     try:
         if seg_df is not None and gene_bed and os.path.exists(gene_bed):
-            genes_df = pd.read_csv(gene_bed, sep='\t', header=None, names=['chrom','start','end','gene'])
+            genes_df = pd.read_csv(gene_bed, sep="\t", header=None, names=["chrom", "start", "end", "gene"])
+
             # Normalize chromosome naming
             def norm_chr(x):
-                return x.replace('chr','') if isinstance(x,str) else x
-            seg_df['chr_norm'] = seg_df[[c for c in seg_df.columns if c in ['chrom', 'chromosome', 'chr']][0]].astype(str).map(norm_chr)
-            genes_df['chr_norm'] = genes_df['chrom'].astype(str).map(norm_chr)
+                return x.replace("chr", "") if isinstance(x, str) else x
+
+            seg_df["chr_norm"] = (
+                seg_df[[c for c in seg_df.columns if c in ["chrom", "chromosome", "chr"]][0]].astype(str).map(norm_chr)
+            )
+            genes_df["chr_norm"] = genes_df["chrom"].astype(str).map(norm_chr)
             for gene in focal_genes:
-                region = genes_df[genes_df['gene'] == gene]
+                region = genes_df[genes_df["gene"] == gene]
                 if region.empty:
                     continue
                 r = region.iloc[0]
                 # Ensure we work on a copy to avoid SettingWithCopyWarning
-                overlaps = seg_df[(seg_df['chr_norm'] == r['chr_norm']) & (seg_df[start_col] <= r['end']) & (seg_df[end_col] >= r['start'])].copy()
+                overlaps = seg_df[
+                    (seg_df["chr_norm"] == r["chr_norm"])
+                    & (seg_df[start_col] <= r["end"])
+                    & (seg_df[end_col] >= r["start"])
+                ].copy()
                 if not overlaps.empty and log2_col:
                     # Choose segment with largest overlap length
-                    r_end = r['end']
-                    r_start = r['start']
-                    overlaps['ov_len'] = overlaps.apply(lambda row, r_end=r_end, r_start=r_start: min(row[end_col], r_end) - max(row[start_col], r_start), axis=1)
-                    best = overlaps.sort_values('ov_len', ascending=False).iloc[0]
+                    r_end = r["end"]
+                    r_start = r["start"]
+                    overlaps["ov_len"] = overlaps.apply(
+                        lambda row, r_end=r_end, r_start=r_start: min(row[end_col], r_end)
+                        - max(row[start_col], r_start),
+                        axis=1,
+                    )
+                    best = overlaps.sort_values("ov_len", ascending=False).iloc[0]
                     l2 = best[log2_col]
                     status = None
                     if l2 >= log2_amp_threshold:
-                        status = 'AMPLIFICATION'
+                        status = "AMPLIFICATION"
                     elif l2 <= log2_del_threshold:
-                        status = 'DELETION'
+                        status = "DELETION"
                     if status:
                         focal_events.append((gene, status, l2))
             if focal_events:
@@ -1235,13 +1264,13 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
     # ----------------------------------------------------------------------------------
     log.append("\nSTEP 5: Summary & Output Files")
     summary = {
-        'purity_estimate': purity_est,
-        'ploidy_estimate': ploidy_est,
+        "purity_estimate": purity_est,
+        "ploidy_estimate": ploidy_est,
     }
     summary.update(hrd_metrics)
     summary_file = os.path.join(output_dir, f"{sample_name}_cn_summary.tsv")
     try:
-        pd.DataFrame([summary]).to_csv(summary_file, sep='\t', index=False)
+        pd.DataFrame([summary]).to_csv(summary_file, sep="\t", index=False)
         log.append(f"- Saved summary metrics: {summary_file}")
     except Exception as e:
         log.append(f"- WARNING: Could not save summary file: {e}")
@@ -1249,7 +1278,7 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
     if focal_events:
         focal_file = os.path.join(output_dir, f"{sample_name}_focal_events.tsv")
         try:
-            pd.DataFrame(focal_events, columns=['Gene','Event','Log2']).to_csv(focal_file, sep='\t', index=False)
+            pd.DataFrame(focal_events, columns=["Gene", "Event", "Log2"]).to_csv(focal_file, sep="\t", index=False)
             log.append(f"- Saved focal events: {focal_file}")
         except Exception as e:
             log.append(f"- WARNING: Could not save focal events file: {e}")
@@ -1261,5 +1290,3 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
     log.append("- Visualize CNV profiles using CNVkit's built-in plotting functions")
 
     return "\n".join(log)
-
-
