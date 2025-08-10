@@ -172,26 +172,26 @@ description = [
         ],
     },
     {
-        "description": "Comprehensive copy number workflow performing CNV segmentation with CNVkit. Approximates purity & ploidy estimation, simplified HRD-style metrics, and focal amplification/deletion detection in selected genes.",
+        "description": "CNVkit-based copy number workflow performing CNV segmentation, purity & ploidy approximation, simplified HRD-style metrics, and focal amplification/deletion detection in selected genes.",
         "name": "analyze_copy_number_purity_ploidy_and_focal_events",
         "optional_parameters": [
             {
                 "name": "normal_bam",
                 "type": "str",
                 "default": None,
-                "description": "Path to matched normal BAM (improves allele-specific CN & purity)",
+                "description": "Path to matched normal BAM (recommended for CNVkit)",
             },
             {
                 "name": "output_dir",
                 "type": "str",
                 "default": "cn_analysis_results",
-                "description": "Directory to store workflow outputs",
+                "description": "Directory to store CNVkit workflow outputs",
             },
             {
                 "name": "targets_bed",
                 "type": "str",
                 "default": None,
-                "description": "BED file of target regions (panel/exome)",
+                "description": "BED file of target regions for CNVkit (panel/exome)",
             },
             {
                 "name": "antitargets_bed",

@@ -962,12 +962,11 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
     log2_amp_threshold=1.0,
     log2_del_threshold=-1.0,
 ):
-    """Comprehensive copy number workflow: CNV segmentation, purity/ploidy & HRD approximation, focal events.
+    """CNVkit-based copy number workflow: CNV segmentation, purity/ploidy & HRD approximation, focal events.
 
-    This function orchestrates a pragmatic copy number analysis workflow integrating (when available)
-    CNVkit (depth-based segmentation), FACETS (allele-specific copy number; requires normal), and/or
-    GATK gCNV. It derives approximate purity & ploidy metrics, a simplified HRD-style summary, and
-    detects focal amplifications/deletions in key oncogenes / tumor suppressors (e.g. MYC, ERBB2, CDKN2A).
+    This function orchestrates a CNVkit-based copy number analysis workflow for tumor samples.
+    It performs CNV segmentation, derives approximate purity & ploidy metrics, calculates a simplified
+    HRD-style summary, and detects focal amplifications/deletions in key oncogenes / tumor suppressors.
 
     Parameters
     ----------
@@ -1008,7 +1007,7 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
 
     log = []
     ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    log.append(f"COPY NUMBER / PURITY / PLOIDY / FOCAL EVENTS WORKFLOW - {ts}")
+    log.append(f"CNVKIT COPY NUMBER ANALYSIS WORKFLOW - {ts}")
     log.append("=" * 80)
     log.append(f"Tumor BAM: {tumor_bam}")
     if normal_bam:
@@ -1025,13 +1024,25 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
     log.append(f"Focal genes for analysis: {', '.join(focal_genes)}")
 
     # ----------------------------------------------------------------------------------
-    # STEP 1: CNV SEGMENTATION (CNVkit preferred if installed)
+    # STEP 1: CNV SEGMENTATION with CNVkit
     # ----------------------------------------------------------------------------------
-    log.append("STEP 1: CNV Segmentation")
+    log.append("STEP 1: CNV Segmentation with CNVkit")
     cnvkit_path = shutil.which("cnvkit.py") or shutil.which("cnvkit")
     use_conda_env = False
 
-    # If CNVkit not in current PATH, check if it's available in bio_env_py310
+    # Check if CNVkit is available in biomni_e1 environment
+    if not cnvkit_path:
+        try:
+            result = subprocess.run(["conda", "run", "-n", "biomni_e1", "which", "cnvkit.py"],
+                                  capture_output=True, text=True, check=True)
+            if result.returncode == 0 and result.stdout.strip():
+                cnvkit_path = "cnvkit.py"  # Will use via conda run
+                use_conda_env = True
+                log.append("- CNVkit found in biomni_e1 environment")
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+
+    # Fallback to bio_env_py310
     if not cnvkit_path:
         try:
             result = subprocess.run(["conda", "run", "-n", "bio_env_py310", "which", "cnvkit.py"],
@@ -1044,101 +1055,52 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
             pass
 
     if not cnvkit_path:
-        log.append("- CNVkit not detected in current PATH or bio_env_py310 environment")
+        log.append("- CNVkit not detected in current PATH, biomni_e1, or bio_env_py310 environment")
         log.append("- Install manually (e.g., pip install cnvkit==0.9.11) or run setup.sh")
+        log.append("- Workflow will exit without CNVkit")
+        return "\n".join(log)
 
     cnvkit_cns = None
+    log.append(f"- CNVkit detected at: {cnvkit_path}")
+
+    # Determine environment prefix for CNVkit commands
+    env_prefix = ["conda", "run", "-n", "biomni_e1"] if use_conda_env else []
+
+    # CNVkit batch command
+    batch_cmd = env_prefix + [cnvkit_path, "batch", tumor_bam, "-d", output_dir, "-f", reference_genome]
+    if normal_bam:
+        batch_cmd.extend(["-n", normal_bam])
+    if targets_bed:
+        batch_cmd.extend(["-t", targets_bed])
+    if antitargets_bed:
+        batch_cmd.extend(["-a", antitargets_bed])
+    batch_cmd.extend(["--scatter", "--diagram"])
+
+    log.append(f"- Running CNVkit batch command: {' '.join(batch_cmd)}")
     try:
-        if cnvkit_path:
-            log.append(f"- CNVkit detected at: {cnvkit_path}")
-            if use_conda_env:
-                batch_cmd = ["conda", "run", "-n", "bio_env_py310", cnvkit_path, "batch", tumor_bam, "-d", output_dir, "-f", reference_genome]
-            else:
-                batch_cmd = [cnvkit_path, "batch", tumor_bam, "-d", output_dir, "-f", reference_genome]
-            if normal_bam:
-                batch_cmd.extend(["-n", normal_bam])
-            if targets_bed:
-                batch_cmd.extend(["-t", targets_bed])
-            if antitargets_bed:
-                batch_cmd.extend(["-a", antitargets_bed])
-            batch_cmd.extend(["--scatter", "--diagram"])
-            log.append(f"- Running CNVkit batch command: {' '.join(batch_cmd)}")
-            try:
-                subprocess.run(batch_cmd, check=True, capture_output=True)
-                log.append("- CNVkit batch completed successfully")
-            except subprocess.CalledProcessError as e:
-                log.append(f"- WARNING: CNVkit batch failed: {e}. Proceeding with limited downstream analyses")
-            cnvkit_cns = os.path.join(output_dir, f"{sample_name}.cns")
-            if os.path.exists(cnvkit_cns):
-                if use_conda_env:
-                    call_cmd = ["conda", "run", "-n", "bio_env_py310", cnvkit_path, "call", cnvkit_cns, "-o", os.path.join(output_dir, f"{sample_name}.call.cns"), "-m", "clonal"]
-                else:
-                    call_cmd = [cnvkit_path, "call", cnvkit_cns, "-o", os.path.join(output_dir, f"{sample_name}.call.cns"), "-m", "clonal"]
-                log.append(f"- Calling absolute CN: {' '.join(call_cmd)}")
-                try:
-                    subprocess.run(call_cmd, check=True, capture_output=True)
-                    cnvkit_cns = os.path.join(output_dir, f"{sample_name}.call.cns")
-                    log.append("- CNVkit call succeeded")
-                except subprocess.CalledProcessError as e:
-                    log.append(f"- WARNING: CNVkit call failed: {e}")
-            else:
-                log.append("- WARNING: Expected CNVkit .cns file not found")
-        else:
-            log.append("- CNVkit not found; skipping CNVkit segmentation")
-    except Exception as e:
-        log.append(f"- ERROR: Unexpected error during CNVkit step: {e}")
+        subprocess.run(batch_cmd, check=True, capture_output=True)
+        log.append("- CNVkit batch completed successfully")
+    except subprocess.CalledProcessError as e:
+        log.append(f"- WARNING: CNVkit batch failed: {e}. Proceeding with limited downstream analyses")
 
-    # ----------------------------------------------------------------------------------
-    # STEP 2: FACETS (if R / facets available and normal provided)
-    # ----------------------------------------------------------------------------------
-    log.append("\nSTEP 2: Allele-Specific Segmentation (FACETS - optional)")
-    facets_available = shutil.which("Rscript") is not None
-    facets_output_seg = None
-    if normal_bam and facets_available:
-        # Placeholder: requires a wrapper script to generate SNP counts and run facets
-        facets_script = os.path.join(output_dir, "run_facets_wrapper.R")
-        if not os.path.exists(facets_script):
-            with open(facets_script, "w") as f:
-                f.write("# Placeholder FACETS wrapper script. Implement facets::runFacetsPipeline here.\n")
-        facets_output_seg = os.path.join(output_dir, f"{sample_name}_facets_segs.tsv")
-        facets_cmd = [
-            "Rscript",
-            facets_script,
-            tumor_bam,
-            normal_bam,
-            reference_genome,
-            facets_output_seg,
-        ]
-        log.append(f"- Running FACETS (placeholder): {' '.join(facets_cmd)}")
+    # Check for CNVkit output and run call command
+    cnvkit_cns = os.path.join(output_dir, f"{sample_name}.cns")
+    if os.path.exists(cnvkit_cns):
+        call_cmd = env_prefix + [cnvkit_path, "call", cnvkit_cns, "-o", os.path.join(output_dir, f"{sample_name}.call.cns"), "-m", "clonal"]
+        log.append(f"- Calling absolute CN: {' '.join(call_cmd)}")
         try:
-            subprocess.run(facets_cmd, check=False)  # non-fatal
-            if os.path.exists(facets_output_seg):
-                log.append("- FACETS segmentation output detected")
-            else:
-                log.append("- WARNING: FACETS output not generated (wrapper is placeholder)")
-        except Exception as e:
-            log.append(f"- WARNING: FACETS step error: {e}")
+            subprocess.run(call_cmd, check=True, capture_output=True)
+            cnvkit_cns = os.path.join(output_dir, f"{sample_name}.call.cns")
+            log.append("- CNVkit call succeeded")
+        except subprocess.CalledProcessError as e:
+            log.append(f"- WARNING: CNVkit call failed: {e}")
     else:
-        if not normal_bam:
-            log.append("- Skipped: normal BAM not provided (required for FACETS)")
-        else:
-            log.append("- Skipped: Rscript not available; FACETS not executed")
+        log.append("- WARNING: Expected CNVkit .cns file not found")
 
     # ----------------------------------------------------------------------------------
-    # STEP 3: GATK gCNV (optional skeleton)
+    # STEP 2: Purity & ploidy approximation (based on CNVkit outputs)
     # ----------------------------------------------------------------------------------
-    log.append("\nSTEP 3: GATK gCNV (optional)")
-    gatk = shutil.which("gatk")
-    if gatk and targets_bed:
-        log.append("- GATK found; gCNV pipeline placeholder (panel-of-normals typically required)")
-        log.append("- For production: run GermlineCNVCaller cohort to build model, then PostprocessGermlineCNVCalls")
-    else:
-        log.append("- Skipped gCNV (either gatk missing or targets_bed not supplied)")
-
-    # ----------------------------------------------------------------------------------
-    # STEP 4: Purity & ploidy approximation (based on CNVkit or FACETS outputs)
-    # ----------------------------------------------------------------------------------
-    log.append("\nSTEP 4: Purity & Ploidy Approximation")
+    log.append("\nSTEP 2: Purity & Ploidy Approximation")
     purity_est = None
     ploidy_est = None
     seg_source = None
@@ -1147,14 +1109,12 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
         if cnvkit_cns and os.path.exists(cnvkit_cns):
             seg_source = cnvkit_cns
             seg_df = pd.read_csv(cnvkit_cns, sep='\t')
-        elif facets_output_seg and os.path.exists(facets_output_seg):
-            seg_source = facets_output_seg
-            seg_df = pd.read_csv(facets_output_seg, sep='\t')
-        if seg_df is not None:
-            log.append(f"- Using segments from: {seg_source}")
+            log.append(f"- Using CNVkit segments from: {seg_source}")
+
             # Harmonize columns
             cols = [c.lower() for c in seg_df.columns]
             seg_df.columns = cols
+
             # Obtain log2 column
             log2_col = None
             for candidate in ["log2", "log2ratio", "cnlr", "logr"]:
@@ -1169,6 +1129,7 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
                 if candidate in cols:
                     start_col = candidate
                     break
+
             if log2_col and start_col and end_col:
                 seg_df['seg_length'] = seg_df[end_col] - seg_df[start_col]
                 # Weighted average absolute copy ratio -> approximate ploidy baseline
@@ -1184,14 +1145,14 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
             else:
                 log.append("- WARNING: Could not identify necessary columns for purity/ploidy estimation")
         else:
-            log.append("- No segmentation available for purity/ploidy estimation")
+            log.append("- No CNVkit segmentation available for purity/ploidy estimation")
     except Exception as e:
         log.append(f"- ERROR: Purity/ploidy estimation failed: {e}")
 
     # ----------------------------------------------------------------------------------
-    # STEP 5: HRD-like summary (simplified proxy)
+    # STEP 3: HRD-like summary (simplified proxy)
     # ----------------------------------------------------------------------------------
-    log.append("\nSTEP 5: HRD Approximation (Simplified)")
+    log.append("\nSTEP 3: HRD Approximation (Simplified)")
     hrd_metrics = {}
     try:
         if seg_df is not None and 'seg_length' in seg_df:
@@ -1223,9 +1184,9 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
         log.append(f"- ERROR: HRD approximation failed: {e}")
 
     # ----------------------------------------------------------------------------------
-    # STEP 6: Focal amplifications/deletions in key genes
+    # STEP 4: Focal amplifications/deletions in key genes
     # ----------------------------------------------------------------------------------
-    log.append("\nSTEP 6: Focal Amplifications / Deletions in Key Genes")
+    log.append("\nSTEP 4: Focal Amplifications / Deletions in Key Genes")
     focal_events = []
     try:
         if seg_df is not None and gene_bed and os.path.exists(gene_bed):
@@ -1270,9 +1231,9 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
         log.append(f"- ERROR: Focal event detection failed: {e}")
 
     # ----------------------------------------------------------------------------------
-    # STEP 7: Summaries & file outputs
+    # STEP 5: Summaries & file outputs
     # ----------------------------------------------------------------------------------
-    log.append("\nSTEP 7: Summary & Output Files")
+    log.append("\nSTEP 5: Summary & Output Files")
     summary = {
         'purity_estimate': purity_est,
         'ploidy_estimate': ploidy_est,
@@ -1294,9 +1255,10 @@ def analyze_copy_number_purity_ploidy_and_focal_events(
             log.append(f"- WARNING: Could not save focal events file: {e}")
 
     log.append("\nNEXT STEPS:")
-    log.append("- Refine purity/ploidy using ABSOLUTE, FACETS, PureCN, or Sequenza")
-    log.append("- Compute validated HRD score (scarHRD / HRDetect) with allele-specific & LOH data")
-    log.append("- Integrate CN events with expression to assess driver activation / dosage")
+    log.append("- For improved purity/ploidy estimation, consider ABSOLUTE, FACETS, PureCN, or Sequenza")
+    log.append("- For validated HRD scoring, use scarHRD or HRDetect with allele-specific data")
+    log.append("- Integrate CN events with expression data to assess driver gene activation/dosage")
+    log.append("- Visualize CNV profiles using CNVkit's built-in plotting functions")
 
     return "\n".join(log)
 
