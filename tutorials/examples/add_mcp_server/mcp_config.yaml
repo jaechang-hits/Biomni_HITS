@@ -2,12 +2,12 @@
 
 mcp_servers:
   # GitHub MCP Server (Docker approach - adding all tools)
-  # github:
-  #   command: ["docker", "run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server"]
-  #   enabled: true
-  #   description: "Official GitHub MCP server for repository and issue management"
-  #   env:
-  #     GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
+  github:
+    command: ["docker", "run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server"]
+    enabled: true
+    description: "Official GitHub MCP server for repository and issue management"
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
 
   # Custom Local MCP Server - Only add tools necessary
   pubmed:
