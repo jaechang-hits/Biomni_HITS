@@ -461,11 +461,11 @@ def estimate_cell_cycle_phase_durations(flow_cytometry_data, initial_estimates):
                 'brdu_positive': list of percentages of BrdU+ cells at each time point,
                 'double_positive': list of percentages of EdU+BrdU+ cells at each time point
             }
-    
+
     initial_estimates : dict
         Initial estimates for cell cycle phase durations and death rates.
         Expected format::
-        
+
             {
                 'g1_duration': float (hours),
                 's_duration': float (hours),
@@ -1326,6 +1326,7 @@ def analyze_cytokine_production_in_cd4_tcells(fcs_files_dict, output_dir="./resu
         log += "\nNo valid results were generated for any condition.\n"
 
     return log
+
 
 def analyze_ebv_antibody_titers(raw_od_data, standard_curve_data, sample_metadata, output_dir="./"):
     """Analyze ELISA data to quantify EBV antibody titers in plasma/serum samples.

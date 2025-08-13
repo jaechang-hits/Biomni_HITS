@@ -676,7 +676,7 @@ def simulate_demographic_history(
         - "sawtooth": Sawtooth pattern of population size changes
     demographic_params : dict
         Parameters specific to the chosen demographic model. Supported formats::
-            
+
             - For "constant": {"N": population size}
             - For "bottleneck": {
                 "N_initial": initial pop size,

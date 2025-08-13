@@ -66,18 +66,18 @@ def run_bash_script(script: str) -> str:
         This is how to use the function
 
         .. code-block:: python
-            
+
             # Example of a complex Bash script
             script = '''
             #!/bin/bash
-            
+
             # Define variables
             DATA_DIR="/path/to/data"
             OUTPUT_FILE="results.txt"
-            
+
             # Create output directory if it doesn't exist
             mkdir -p $(dirname $OUTPUT_FILE)
-            
+
             # Loop through files
             for file in $DATA_DIR/*.txt; do
                 echo "Processing $file..."
@@ -85,7 +85,7 @@ def run_bash_script(script: str) -> str:
                 line_count=$(wc -l < $file)
                 echo "$file: $line_count lines" >> $OUTPUT_FILE
             done
-            
+
             echo "Processing complete. Results saved to $OUTPUT_FILE"
             '''
             result = run_bash_script(script)
