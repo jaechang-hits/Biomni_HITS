@@ -222,3 +222,7 @@ data/ddinter_raw/
 
 # VSCode
 /.vscode
+
+# Sphinx build
+/docs/build/
+/docs/source/api/
