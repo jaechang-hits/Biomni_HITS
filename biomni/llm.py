@@ -2,8 +2,6 @@ import os
 from typing import Literal, Optional
 
 import openai
-
-# from langchain_aws import ChatBedrock
 from langchain_core.language_models.chat_models import BaseChatModel
 
 SourceType = Literal["OpenAI", "AzureOpenAI", "Anthropic", "Ollama", "Gemini", "Bedrock", "Groq", "Custom"]
@@ -160,13 +158,20 @@ def get_llm(
             temperature=temperature,
         )
 
-    # elif source == "Bedrock":
-    #     return ChatBedrock(
-    #         model=model,
-    #         temperature=temperature,
-    #         stop_sequences=stop_sequences,
-    #         region_name=os.getenv("AWS_REGION", "us-east-1"),
-    #     )
+    elif source == "Bedrock":
+        try:
+            from langchain_aws import ChatBedrock
+        except ImportError:
+            raise ImportError(  # noqa: B904
+                "langchain-aws package is required for Bedrock models. Install with: pip install langchain-aws"
+            )
+        return ChatBedrock(
+            model=model,
+            temperature=temperature,
+            stop_sequences=stop_sequences,
+            region_name=os.getenv("AWS_REGION", "us-east-1"),
+        )
+
     elif source == "Custom":
         try:
             from langchain_openai import ChatOpenAI
