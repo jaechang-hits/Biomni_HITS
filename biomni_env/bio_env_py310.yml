@@ -5,12 +5,10 @@ channels:
   - defaults
 dependencies:
   - python=3.10
-  - cnvkit=0.9.12
+  - cnvkit
   - samtools
   - bedtools
   - pip
-  - pip:
-    - pomegranate==0.14.8  # Explicit to avoid resolver surprises
 
 # Purpose: Python 3.10 compatibility environment for tools not yet supporting newer Python versions.
 # Automaticlly setup on setup.sh execution.

@@ -148,27 +148,6 @@ install_cli_tools() {
     unset BIOMNI_TOOLS_DIR
 }
 
-# Function to install Python 3.10 compatibility environment (for tools not yet supporting 3.11+)
-install_py310_env() {
-    echo -e "\n${BLUE}=== Creating Python 3.10 Compatibility Environment (bio_env_py310) ===${NC}"
-    if conda env list | grep -q "bio_env_py310"; then
-        echo -e "${YELLOW}bio_env_py310 already exists. Updating...${NC}"
-        conda env update -f bio_env_py310.yml --prune
-        handle_error $? "Failed to update bio_env_py310 environment." true
-        return 0
-    fi
-    if [ ! -f bio_env_py310.yml ]; then
-        echo -e "${RED}bio_env_py310.yml not found. Cannot create Python 3.10 compatibility env.${NC}"
-        return 1
-    fi
-    conda env create -f bio_env_py310.yml
-    handle_error $? "Failed to create bio_env_py310 environment." false
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}Created bio_env_py310 environment (Python 3.10 compatibility).${NC}"
-        echo -e "${YELLOW}Invoke legacy-version tools via: conda run -n bio_env_py310 <command> ...${NC}"
-    fi
-}
-
 # Main installation process
 main() {
     # Step 1: Create base conda environment
@@ -204,10 +183,6 @@ main() {
     echo -e "\n${YELLOW}Step 6: Installing command-line bioinformatics tools...${NC}"
     install_cli_tools
 
-    # Step 7: Create Python 3.10 compatibility env (mandatory)
-    install_py310_env
-
-
     # Setup completed
     echo -e "\n${GREEN}=== Biomni Environment Setup Completed! ===${NC}"
     echo -e "You can now run the example analysis with: ${YELLOW}python bio_analysis_example.py${NC}"
@@ -220,7 +195,7 @@ main() {
         echo -e "The command-line tools are installed in: ${YELLOW}$TOOLS_DIR${NC}"
         echo -e "To add these tools to your PATH, run: ${YELLOW}source $(pwd)/setup_path.sh${NC}"
         echo -e "You can also add this line to your shell profile for permanent access:"
-        echo -e "${GREEN}export PATH=\"$TOOLS_DIR/bin:$PATH\"${NC}"
+        echo -e "${GREEN}export PATH=\"$TOOLS_DIR/bin:\$PATH\"${NC}"
 
         # Test if tools are accessible
         echo -e "\n${BLUE}=== Testing CLI Tools ===${NC}"
