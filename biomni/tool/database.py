@@ -8,8 +8,6 @@ import requests
 from Bio.Blast import NCBIWWW, NCBIXML
 from Bio.Seq import Seq
 from langchain_core.messages import HumanMessage, SystemMessage
-
-from biomni.llm import get_llm
 from biomni.utils import parse_hpo_obo
 
 
@@ -59,7 +57,8 @@ def _query_llm_for_api(prompt, schema, system_template, api_key=None, model="cla
         else:
             system_prompt = system_template
 
-        # Get LLM instance using the unified interface
+        # Get LLM instance using the unified interface (lazy import to avoid hard test deps)
+        from biomni.llm import get_llm  # import here to avoid requiring openai when unused
         llm = get_llm(model=model, temperature=0.0, api_key=api_key or "EMPTY")
 
         # Compose messages
