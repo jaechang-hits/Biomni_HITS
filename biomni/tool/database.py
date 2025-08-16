@@ -61,6 +61,7 @@ def _query_llm_for_api(prompt, schema, system_template, api_key=None, model="cla
 
         # Get LLM instance using the unified interface
         llm = get_llm(model=model, temperature=0.0, api_key=api_key or "EMPTY")
+
         # Compose messages
         messages = [
             SystemMessage(content=system_prompt),
@@ -2676,7 +2677,7 @@ def query_openfda(
             return llm_result
         query_info = llm_result["data"]
         endpoint = query_info.get("full_url", "")
-        query_info.get("description", "")
+        description = query_info.get("description", "")
         if not endpoint:
             return {
                 "error": "Failed to generate a valid endpoint from the prompt",
@@ -2688,6 +2689,7 @@ def query_openfda(
             endpoint = f"{base_url}{endpoint}"
         elif not endpoint.startswith("http"):
             endpoint = f"{base_url}/{endpoint.lstrip('/')}"
+        description = "Direct query to OpenFDA API"
 
     # Add max_results as a query parameter if not already present
     if "?" in endpoint:
