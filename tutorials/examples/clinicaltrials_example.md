@@ -26,5 +26,3 @@ from biomni.tool.database import query_clinicaltrials
 print(query_clinicaltrials(term="type 2 diabetes", page_size=3, max_pages=1, verbose=False))
 PY
 ```
-
-
