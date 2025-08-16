@@ -603,12 +603,6 @@ description = [
                 "name": "max_results",
                 "type": "int",
             },
-            {
-                "default": False,
-                "description": "Whether to return detailed results",
-                "name": "verbose",
-                "type": "bool",
-            },
         ],
         "required_parameters": [
             {

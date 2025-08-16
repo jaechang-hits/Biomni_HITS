@@ -2677,7 +2677,6 @@ def query_openfda(
             return llm_result
         query_info = llm_result["data"]
         endpoint = query_info.get("full_url", "")
-        query_info.get("description", "")
         if not endpoint:
             return {
                 "error": "Failed to generate a valid endpoint from the prompt",
