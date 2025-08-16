@@ -26,7 +26,9 @@
 
 ## Overview
 
+
 Biomni is a general-purpose biomedical AI agent designed to autonomously execute a wide range of research tasks across diverse biomedical subfields. By integrating cutting-edge large language model (LLM) reasoning with retrieval-augmented planning and code-based execution, Biomni helps scientists dramatically enhance research productivity and generate testable hypotheses.
+
 
 ## Quick Start
 
@@ -41,20 +43,94 @@ Then activate the environment E1:
 conda activate biomni_e1
 ```
 
-then install the latest biomni package:
+then install the biomni official pip package:
 
 ```bash
 pip install biomni --upgrade
 ```
 
-Or install from the github source version.
+For the latest update, install from the github source version, or do:
 
-Lastly, configure your API keys in bash profile `~/.bashrc`:
+```bash
+pip install git+https://github.com/snap-stanford/Biomni.git@main
+```
+
+Lastly, configure your API keys using one of the following methods:
+
+<details>
+<summary>Click to expand</summary>
+
+#### Option 1: Using .env file (Recommended)
+
+Create a `.env` file in your project directory:
+
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit the .env file with your actual API keys
+```
+
+Your `.env` file should look like:
+
+```env
+# Required: Anthropic API Key for Claude models
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+
+# Optional: OpenAI API Key (if using OpenAI models)
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Optional: Azure OpenAI API Key (if using Azure OpenAI models)
+OPENAI_API_KEY=your_azure_openai_api_key
+OPENAI_ENDPOINT=https://your-resource-name.openai.azure.com/
+
+# Optional: AI Studio Gemini API Key (if using Gemini models)
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# Optional: groq API Key (if using groq as model provider)
+GROQ_API_KEY=your_groq_api_key_here
+
+# Optional: Set the source of your LLM for example:
+#"OpenAI", "AzureOpenAI", "Anthropic", "Ollama", "Gemini", "Bedrock", "Groq", "Custom"
+LLM_SOURCE=your_LLM_source_here
+
+# Optional: AWS Bedrock Configuration (if using AWS Bedrock models)
+AWS_BEARER_TOKEN_BEDROCK=your_bedrock_api_key_here
+AWS_REGION=us-east-1
+
+# Optional: Custom model serving configuration
+# CUSTOM_MODEL_BASE_URL=http://localhost:8000/v1
+# CUSTOM_MODEL_API_KEY=your_custom_api_key_here
+
+# Optional: Biomni data path (defaults to ./data)
+# BIOMNI_DATA_PATH=/path/to/your/data
+
+# Optional: Timeout settings (defaults to 600 seconds)
+# BIOMNI_TIMEOUT_SECONDS=600
+```
+
+#### Option 2: Using shell environment variables
+
+Alternatively, configure your API keys in bash profile `~/.bashrc`:
 
 ```bash
 export ANTHROPIC_API_KEY="YOUR_API_KEY"
 export OPENAI_API_KEY="YOUR_API_KEY" # optional if you just use Claude
+export OPENAI_ENDPOINT="https://your-resource-name.openai.azure.com/" # optional unless you are using Azure
+export AWS_BEARER_TOKEN_BEDROCK="YOUR_BEDROCK_API_KEY" # optional for AWS Bedrock models
+export AWS_REGION="us-east-1" # optional, defaults to us-east-1 for Bedrock
+export GEMINI_API_KEY="YOUR_GEMINI_API_KEY" #optional if you want to use a gemini model
+export GROQ_API_KEY="YOUR_GROQ_API_KEY" # Optional: set this to use models served by Groq
+export LLM_SOURCE="Groq" # Optional: set this to use models served by Groq
+
+
 ```
+</details>
+
+
+#### ⚠️ Known Package Conflicts
+
+Some Python packages are not installed by default in the Biomni environment due to dependency conflicts. If you need these features, you must install the packages manually and may need to uncomment relevant code in the codebase. See the up-to-date list and details in [docs/known_conflicts.md](./docs/known_conflicts.md).
 
 ### Basic Usage
 
@@ -71,6 +147,24 @@ agent.go("Plan a CRISPR screen to identify genes that regulate T cell exhaustion
 agent.go("Perform scRNA-seq annotation at [PATH] and generate meaningful hypothesis")
 agent.go("Predict ADMET properties for this compound: CC(C)CC1=CC=C(C=C1)C(C)C(=O)O")
 ```
+If you plan on using Azure for your model, always prefix the model name with azure- (e.g. llm='azure-gpt-4o').
+
+## MCP (Model Context Protocol) Support
+
+Biomni supports MCP servers for external tool integration:
+
+```python
+from biomni.agent import A1
+
+agent = A1()
+agent.add_mcp(config_path="./mcp_config.yaml")
+agent.go("Find FDA active ingredient information for ibuprofen")
+```
+
+
+**Built-in MCP Servers:**
+For usage and implementation details, see the [MCP Integration Documentation](docs/mcp_integration.md) and examples in [`tutorials/examples/add_mcp_server/`](tutorials/examples/add_mcp_server/) and [`tutorials/examples/expose_biomni_server/`](tutorials/examples/expose_biomni_server/).
+
 
 ## 🤝 Contributing to Biomni
 
@@ -121,9 +215,11 @@ Experience Biomni through our no-code web interface at **[biomni.stanford.edu](h
 - [ ] 8 Real-world research task benchmark/leaderboard release
 - [ ] A tutorial on how to contribute to Biomni
 - [ ] A tutorial on baseline agents
+- [x] MCP support
 - [x] Biomni A1+E1 release
 
-## Note
+## Important Note
+- Security warning: Currently, Biomni executes LLM-generated code with full system privileges. If you want to use it in production, please use in isolated/sandboxed environments. The agent can access files, network, and system commands. Be careful with sensitive data or credentials.
 - This release was frozen as of April 15 2025, so it differs from the current web platform.
 - Biomni itself is Apache 2.0-licensed, but certain integrated tools, databases, or software may carry more restrictive commercial licenses. Review each component carefully before any commercial use.
 

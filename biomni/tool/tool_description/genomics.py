@@ -24,12 +24,6 @@ description = [
                 "name": "composition",
                 "type": "pd.DataFrame",
             },
-            {
-                "default": "/dfs/project/bioagentos/data_lake",
-                "description": "Path to the data lake",
-                "name": "DATA_LAKE",
-                "type": "str",
-            },
         ],
         "required_parameters": [
             {
@@ -48,6 +42,52 @@ description = [
                 "default": None,
                 "description": 'Information about the scRNA-seq data (e.g., "homo sapiens, brain tissue, normal")',
                 "name": "data_info",
+                "type": "str",
+            },
+            {
+                "default": None,
+                "description": "Path to the data lake",
+                "name": "data_lake_path",
+                "type": "str",
+            },
+        ],
+    },
+    {
+        "description": "Perform cell type annotation of single-cell RNA-seq data using Panhuman Azimuth Neural Network. "
+        "This function implements the Panhuman Azimuth workflow for cell type annotation using the "
+        "panhumanpy package, providing hierarchical cell type labels for tissues across the human body. ",
+        "name": "annotate_celltype_with_panhumanpy",
+        "optional_parameters": [
+            {
+                "default": None,
+                "description": "Column name in adata.var containing gene symbols (default: None, uses index)",
+                "name": "feature_names_col",
+                "type": "str",
+            },
+            {
+                "default": True,
+                "description": "Whether to perform additional label refinement for consistent granularity",
+                "name": "refine",
+                "type": "bool",
+            },
+            {
+                "default": True,
+                "description": "Whether to generate ANN embeddings and UMAP",
+                "name": "umap",
+                "type": "bool",
+            },
+            {
+                "default": "./output",
+                "description": "Directory to save results",
+                "name": "output_dir",
+                "type": "str",
+            },
+        ],
+        "required_parameters": [
+            {
+                "default": None,
+                "description": "Path to the AnnData file containing scRNA-seq data",
+                "name": "adata_path",
                 "type": "str",
             },
         ],

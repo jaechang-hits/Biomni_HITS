@@ -12,20 +12,20 @@ authors = [
     {name = "Biomni Team", email = "kexinh@cs.stanford.edu"}
 ]
 requires-python = ">=3.11"
-dependencies = ["pydantic", "langchain"]
+dependencies = ["pydantic", "langchain", "python-dotenv"]
 
 [project.urls]
 Homepage = "https://github.com/snap-stanford/biomni"
 Repository = "https://github.com/snap-stanford/biomni"
 
+[tool.setuptools]
+include-package-data = true
+
 [tool.setuptools.dynamic]
 version = {attr = "biomni.version.__version__"}
 
 [tool.setuptools.packages.find]
-exclude = ["test*"]
-
-[tool.setuptools.package-data]
-"*" = ["*"]
+exclude = ["test*", "tutorials*"]
 
 [tool.ruff]
 src = ["src"]

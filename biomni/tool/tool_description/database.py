@@ -696,50 +696,6 @@ description = [
         ],
     },
     {
-        "description": "Query the OpenTargets Genetics API using natural language or a direct GraphQL query.",
-        "name": "query_opentarget_genetics",
-        "optional_parameters": [
-            {
-                "default": None,
-                "description": "Direct GraphQL query string",
-                "name": "query",
-                "type": "str",
-            },
-            {
-                "default": None,
-                "description": "Variables for the GraphQL query",
-                "name": "variables",
-                "type": "dict",
-            },
-            {
-                "default": None,
-                "description": "Anthropic API key. If None, will use ANTHROPIC_API_KEY env variable",
-                "name": "api_key",
-                "type": "str",
-            },
-            {
-                "default": "claude-3-5-haiku-20241022",
-                "description": "Anthropic model to use for natural language processing",
-                "name": "model",
-                "type": "str",
-            },
-            {
-                "default": True,
-                "description": "Whether to return detailed API response information",
-                "name": "verbose",
-                "type": "bool",
-            },
-        ],
-        "required_parameters": [
-            {
-                "default": None,
-                "description": "Natural language query about genetic targets and variants",
-                "name": "prompt",
-                "type": "str",
-            }
-        ],
-    },
-    {
         "description": "Query the OpenTargets Platform API using natural language or a direct GraphQL query.",
         "name": "query_opentarget",
         "optional_parameters": [
@@ -817,6 +773,50 @@ description = [
             {
                 "default": None,
                 "description": "Natural language query about GWAS data",
+                "name": "prompt",
+                "type": "str",
+            }
+        ],
+    },
+    {
+        "description": "Query the Monarch Initiative API using natural language or a direct endpoint.",
+        "name": "query_monarch",
+        "optional_parameters": [
+            {
+                "default": None,
+                "description": "Direct API endpoint to query",
+                "name": "endpoint",
+                "type": "str",
+            },
+            {
+                "default": None,
+                "description": "Anthropic API key. If None, will use ANTHROPIC_API_KEY env variable",
+                "name": "api_key",
+                "type": "str",
+            },
+            {
+                "default": "claude-3-5-haiku-20241022",
+                "description": "Anthropic model to use for natural language processing",
+                "name": "model",
+                "type": "str",
+            },
+            {
+                "default": 2,
+                "description": "Maximum number of results to return",
+                "name": "max_results",
+                "type": "int",
+            },
+            {
+                "default": False,
+                "description": "Whether to return detailed results",
+                "name": "verbose",
+                "type": "bool",
+            },
+        ],
+        "required_parameters": [
+            {
+                "default": None,
+                "description": "Natural language query about genetic variants",
                 "name": "prompt",
                 "type": "str",
             }

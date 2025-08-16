@@ -125,7 +125,13 @@ description = [
                 "description": "The name of the disease for which to retrieve drug predictions",
                 "name": "disease_name",
                 "type": "str",
-            }
+            },
+            {
+                "default": None,
+                "description": "Path to the data lake",
+                "name": "data_lake_path",
+                "type": "str",
+            },
         ],
     },
     {
@@ -479,6 +485,238 @@ description = [
                 "'primary' and 'secondary' keys",
                 "name": "antibody_info",
                 "type": "dict",
+            },
+        ],
+    },
+    {
+        "description": "Query drug-drug interactions from DDInter database to identify potential interactions, mechanisms, and severity levels between specified drugs.",
+        "name": "query_drug_interactions",
+        "required_parameters": [
+            {
+                "default": None,
+                "description": "List of drug names to query for interactions",
+                "name": "drug_names",
+                "type": "List[str]",
+            }
+        ],
+        "optional_parameters": [
+            {
+                "default": None,
+                "description": "Filter results by specific interaction types",
+                "name": "interaction_types",
+                "type": "List[str]",
+            },
+            {
+                "default": None,
+                "description": "Filter results by severity levels (Major, Moderate, Minor)",
+                "name": "severity_levels",
+                "type": "List[str]",
+            },
+            {
+                "default": None,
+                "description": "Path to data lake directory containing DDInter data",
+                "name": "data_lake_path",
+                "type": "str",
+            },
+        ],
+    },
+    {
+        "description": "Analyze safety of a drug combination for potential interactions using DDInter database with comprehensive risk assessment and clinical recommendations.",
+        "name": "check_drug_combination_safety",
+        "required_parameters": [
+            {
+                "default": None,
+                "description": "List of drugs to analyze for combination safety",
+                "name": "drug_list",
+                "type": "List[str]",
+            }
+        ],
+        "optional_parameters": [
+            {
+                "default": True,
+                "description": "Include interaction mechanism descriptions in results",
+                "name": "include_mechanisms",
+                "type": "bool",
+            },
+            {
+                "default": True,
+                "description": "Include management recommendations in results",
+                "name": "include_management",
+                "type": "bool",
+            },
+            {
+                "default": None,
+                "description": "Path to data lake directory containing DDInter data",
+                "name": "data_lake_path",
+                "type": "str",
+            },
+        ],
+    },
+    {
+        "description": "Analyze interaction mechanisms between two specific drugs providing detailed mechanistic insights and clinical significance assessment.",
+        "name": "analyze_interaction_mechanisms",
+        "required_parameters": [
+            {
+                "default": None,
+                "description": "Pair of drug names to analyze (drug1, drug2)",
+                "name": "drug_pair",
+                "type": "Tuple[str, str]",
+            }
+        ],
+        "optional_parameters": [
+            {
+                "default": True,
+                "description": "Include detailed mechanistic information in analysis",
+                "name": "detailed_analysis",
+                "type": "bool",
+            },
+            {
+                "default": None,
+                "description": "Path to data lake directory containing DDInter data",
+                "name": "data_lake_path",
+                "type": "str",
+            },
+        ],
+    },
+    {
+        "description": "Find alternative drugs that don't interact with contraindicated drugs using DDInter database for safer therapeutic substitutions.",
+        "name": "find_alternative_drugs_ddinter",
+        "required_parameters": [
+            {
+                "default": None,
+                "description": "Drug to find alternatives for",
+                "name": "target_drug",
+                "type": "str",
+            },
+            {
+                "default": None,
+                "description": "List of drugs to avoid interactions with",
+                "name": "contraindicated_drugs",
+                "type": "List[str]",
+            },
+        ],
+        "optional_parameters": [
+            {
+                "default": None,
+                "description": "Limit search to specific therapeutic class",
+                "name": "therapeutic_class",
+                "type": "str",
+            },
+            {
+                "default": None,
+                "description": "Path to data lake directory containing DDInter data",
+                "name": "data_lake_path",
+                "type": "str",
+            },
+        ],
+    },
+    {
+        "description": "Query FDA adverse event reports for specific drugs from the OpenFDA database to identify potential safety signals, reaction patterns, and regulatory intelligence.",
+        "name": "query_fda_adverse_events",
+        "required_parameters": [
+            {
+                "default": None,
+                "description": "Name of the drug to query for adverse events",
+                "name": "drug_name",
+                "type": "str",
+            },
+        ],
+        "optional_parameters": [
+            {
+                "default": None,
+                "description": "Optional date range as (start_date, end_date) in YYYY-MM-DD format",
+                "name": "date_range",
+                "type": "Tuple[str, str]",
+            },
+            {
+                "default": None,
+                "description": "Optional filter by severity levels ['serious', 'non_serious']",
+                "name": "severity_filter",
+                "type": "List[str]",
+            },
+            {
+                "default": None,
+                "description": "Optional filter by outcomes ['life_threatening', 'hospitalization', 'death']",
+                "name": "outcome_filter",
+                "type": "List[str]",
+            },
+            {
+                "default": 100,
+                "description": "Maximum number of results to return",
+                "name": "limit",
+                "type": "int",
+            },
+        ],
+    },
+    {
+        "description": "Retrieve FDA drug label information including indications, contraindications, warnings, and dosage information from the OpenFDA database.",
+        "name": "get_fda_drug_label_info",
+        "required_parameters": [
+            {
+                "default": None,
+                "description": "Name of the drug to query for label information",
+                "name": "drug_name",
+                "type": "str",
+            },
+        ],
+        "optional_parameters": [
+            {
+                "default": None,
+                "description": "Optional list of specific sections to retrieve ['indications_and_usage', 'contraindications', 'warnings', 'dosage_and_administration']",
+                "name": "sections",
+                "type": "List[str]",
+            },
+        ],
+    },
+    {
+        "description": "Check for FDA drug recalls and enforcement actions from the OpenFDA database to identify safety concerns and regulatory actions.",
+        "name": "check_fda_drug_recalls",
+        "required_parameters": [
+            {
+                "default": None,
+                "description": "Name of the drug to check for recalls",
+                "name": "drug_name",
+                "type": "str",
+            },
+        ],
+        "optional_parameters": [
+            {
+                "default": None,
+                "description": "Optional filter by recall class ['Class I', 'Class II', 'Class III']",
+                "name": "classification",
+                "type": "List[str]",
+            },
+            {
+                "default": None,
+                "description": "Optional date range for recalls as (start_date, end_date)",
+                "name": "date_range",
+                "type": "Tuple[str, str]",
+            },
+        ],
+    },
+    {
+        "description": "Analyze safety signals across multiple drugs using OpenFDA adverse event data to identify patterns and comparative risk profiles.",
+        "name": "analyze_fda_safety_signals",
+        "required_parameters": [
+            {
+                "default": None,
+                "description": "List of drug names to analyze for safety signals",
+                "name": "drug_list",
+                "type": "List[str]",
+            },
+        ],
+        "optional_parameters": [
+            {
+                "default": None,
+                "description": "Optional comparison time period as (start_date, end_date)",
+                "name": "comparison_period",
+                "type": "Tuple[str, str]",
+            },
+            {
+                "default": 2.0,
+                "description": "Threshold for signal detection",
+                "name": "signal_threshold",
+                "type": "float",
             },
         ],
     },
