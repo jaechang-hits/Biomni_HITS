@@ -2676,7 +2676,7 @@ def query_openfda(
             return llm_result
         query_info = llm_result["data"]
         endpoint = query_info.get("full_url", "")
-        description = query_info.get("description", "")
+        query_info.get("description", "")
         if not endpoint:
             return {
                 "error": "Failed to generate a valid endpoint from the prompt",
@@ -2688,7 +2688,6 @@ def query_openfda(
             endpoint = f"{base_url}{endpoint}"
         elif not endpoint.startswith("http"):
             endpoint = f"{base_url}/{endpoint.lstrip('/')}"
-        description = "Direct query to OpenFDA API"
 
     # Add max_results as a query parameter if not already present
     if "?" in endpoint:
@@ -2730,7 +2729,7 @@ def query_clinicaltrials(
         system_template = (
             "You translate natural language into ClinicalTrials.gov API parameters.\n"
             "Return ONLY a JSON object with keys among: \n"
-            "{\"term\": str, \"status\": str, \"condition\": str, \"intervention\": str, \"location\": str, \"phase\": str, \"page_size\": int}.\n"
+            '{"term": str, "status": str, "condition": str, "intervention": str, "location": str, "phase": str, "page_size": int}.\n'
             "Do not include explanations. Keep values concise (e.g., status like 'RECRUITING', phase like 'PHASE3')."
         )
 
