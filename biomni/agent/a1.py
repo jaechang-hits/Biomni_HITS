@@ -4,7 +4,7 @@ import os
 import re
 from collections.abc import Generator
 from pathlib import Path
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, Optional, TypedDict
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -13,6 +13,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
+from biomni.config import default_config
 from biomni.env_desc import data_lake_dict, library_content_dict
 from biomni.llm import SourceType, get_llm
 from biomni.model.retriever import ToolRetriever
@@ -43,13 +44,13 @@ class AgentState(TypedDict):
 class A1:
     def __init__(
         self,
-        path="./data",
-        llm="claude-sonnet-4-20250514",
+        path: str | None = None,
+        llm: str | None = None,
         source: SourceType | None = None,
-        use_tool_retriever=True,
-        timeout_seconds=600,
+        use_tool_retriever: bool | None = None,
+        timeout_seconds: int | None = None,
         base_url: str | None = None,
-        api_key: str = "EMPTY",
+        api_key: str | None = None,
     ):
         """Initialize the biomni agent.
 
@@ -63,6 +64,32 @@ class A1:
             api_key: API key for the custom LLM
 
         """
+        # Use default_config values for unspecified parameters
+        if path is None:
+            path = default_config.data_path
+        if llm is None:
+            llm = default_config.llm_model
+        if source is None:
+            source = default_config.source
+        if use_tool_retriever is None:
+            use_tool_retriever = default_config.use_tool_retriever
+        if timeout_seconds is None:
+            timeout_seconds = default_config.timeout_seconds
+        if base_url is None:
+            base_url = default_config.base_url
+        if api_key is None:
+            api_key = default_config.api_key if default_config.api_key else "EMPTY"
+
+        # Display configuration in a nice, readable format
+        print("\n" + "=" * 50)
+        print("🔧 BIOMNI CONFIGURATION")
+        print("=" * 50)
+        config_dict = default_config.to_dict()
+        for key, value in config_dict.items():
+            if value is not None:
+                print(f"  {key.replace('_', ' ').title()}: {value}")
+        print("=" * 50 + "\n")
+
         self.path = path
 
         if not os.path.exists(path):
@@ -108,7 +135,12 @@ class A1:
         module2api = read_module2api()
 
         self.llm = get_llm(
-            llm, stop_sequences=["</execute>", "</solution>"], source=source, base_url=base_url, api_key=api_key
+            llm,
+            stop_sequences=["</execute>", "</solution>"],
+            source=source,
+            base_url=base_url,
+            api_key=api_key,
+            config=default_config,
         )
         self.module2api = module2api
         self.use_tool_retriever = use_tool_retriever
@@ -1687,7 +1719,6 @@ Each library is listed with its description to help you understand its functiona
         """
         import importlib
         import inspect
-        from typing import Optional
 
         from mcp.server.fastmcp import FastMCP
 
