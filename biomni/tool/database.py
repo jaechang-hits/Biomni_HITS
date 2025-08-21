@@ -4082,6 +4082,30 @@ def query_synapse(
         description=description,
     )
 
+    # Augment results with access control information
+    if api_result.get("success") and "result" in api_result:
+        result_data = api_result["result"]
+        if isinstance(result_data, dict) and "hits" in result_data:
+            for hit in result_data["hits"]:
+                if "id" in hit:
+                    # Check access requirements for this entity
+                    access_url = f"{base_url}/repo/v1/entity/{hit['id']}/accessRequirement"
+                    access_result = _query_rest_api(
+                        endpoint=access_url,
+                        method="GET",
+                        headers=headers,
+                        description=f"Check access requirements for {hit['id']}",
+                    )
+
+                    # Add access_restricted property based on access requirements
+                    if access_result.get("success") and "result" in access_result:
+                        access_data = access_result["result"]
+                        total_requirements = access_data.get("totalNumberOfResults", 0)
+                        hit["access_restricted"] = total_requirements > 0
+                    else:
+                        # If we can't check access, assume it might be restricted
+                        hit["access_restricted"] = True
+
     # Format results if not verbose and successful
     if not verbose and api_result.get("success") and "result" in api_result:
         api_result["result"] = _format_query_results(api_result["result"])

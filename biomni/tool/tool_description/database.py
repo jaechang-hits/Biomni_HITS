@@ -779,7 +779,7 @@ description = [
         ],
     },
     {
-        "description": "Query Synapse REST API for biomedical datasets and files using natural language or structured search parameters. Supports optional authentication via SYNAPSE_AUTH_TOKEN environment variable.",
+        "description": "Query Synapse REST API for biomedical datasets and files using natural language or structured search parameters. Supports optional authentication via SYNAPSE_AUTH_TOKEN environment variable. Results include 'access_restricted' property - if true, dataset requires approval via Synapse web interface and cannot be immediately accessed.",
         "name": "query_synapse",
         "optional_parameters": [
             {
