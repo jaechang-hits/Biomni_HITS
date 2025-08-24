@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
-from bioagentos.task.base_task import base_task
+
+from biomni.task.base_task import base_task
 
 np.random.seed(42)
 
