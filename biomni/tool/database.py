@@ -3970,7 +3970,7 @@ def query_synapse(
     query_term: str | list[str] | None = None,
     return_fields: list[str] | None = None,
     max_results: int = 20,
-    query_type: str = "file",
+    query_type: str = "dataset",
     verbose: bool = True,
 ):
     """Query Synapse REST API for biomedical datasets and files.
@@ -3984,14 +3984,15 @@ def query_synapse(
     prompt : str, optional
         Natural language query about biomedical data (e.g., "Find drug screening datasets")
     query_term : str or list of str, optional
-        Specific search terms for Synapse search
+        Specific search terms for Synapse search. When multiple terms are provided
+        as a list, they are combined with AND logic (more terms = more restrictive). Start with 1-2 most relevant search terms.
     return_fields : list of str, optional
         Fields to return in results. Default: ["name", "node_type", "description"]
     max_results : int, default 20
         Maximum number of results to return. Default 20 is optimal for most searches.
         Use up to 50 if extensive results are desired for comprehensive analysis.
-    query_type : str, default "file"
-        Type of entity to search for ("file", "project", "folder", etc.)
+    query_type : str, default "dataset"
+        Type of entity to search for ("dataset", "file", "folder")
     verbose : bool, default True
         Whether to return full API response or formatted results
 
@@ -4008,10 +4009,10 @@ def query_synapse(
 
     Examples
     --------
-    # Natural language query
+    # Natural language
     query_synapse(prompt="Find drug screening datasets")
 
-    # Direct search terms
+    # Direct search (AND logic - finds datasets with both "cancer" AND "genomics")
     query_synapse(query_term=["cancer", "genomics"], max_results=10)
 
     # Extensive search
@@ -4034,11 +4035,11 @@ def query_synapse(
     if prompt and not query_term:
         system_template = (
             "You extract search terms from natural language queries for biomedical data search.\n"
-            "Return ONLY a JSON object with this structure:\n"
-            '{"query_term": ["term1", "term2"], "query_type": "file", "max_results": 20}.\n'
-            "query_type should be 'file' for datasets/data files, 'project' for studies, or 'folder' for collections.\n"
+            "Return ONLY a JSON object with this structure, where query_term combines search terms using AND for each entry:\n"
+            '{"query_term": ["term1", "term2"], "query_type": "dataset", "max_results": 20}.\n'
+            "query_type should be 'dataset' for datasets, 'file' for data files, or 'folder' for collections.\n"
             "max_results should be 20 for typical searches, or up to 50 if extensive/comprehensive results are desired.\n"
-            "Extract 1-3 most relevant search terms. Do not include explanations."
+            "Start with 1-2 most relevant search terms (these are combined with AND; more terms = more restrictive). Do not include explanations."
         )
 
         llm_result = _query_llm_for_api(

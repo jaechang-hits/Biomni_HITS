@@ -28,7 +28,7 @@ description = [
         ],
     },
     {
-        "description": "Download data from Synapse using entity IDs. Requires SYNAPSE_AUTH_TOKEN environment variable for authentication. Automatically installs synapseclient if not available.",
+        "description": "Download data from Synapse using entity IDs. Requires SYNAPSE_AUTH_TOKEN environment variable for authentication. CRITICAL: Always specify entity_type parameter based on what you're downloading (file, dataset, folder, project). Check user hints like 'files' or search results to determine correct type. Multiple IDs only work with entity_type='file'. Recursive only works with entity_type='folder'.",
         "name": "download_synapse_data",
         "optional_parameters": [
             {
@@ -46,7 +46,7 @@ description = [
             {
                 "name": "recursive",
                 "type": "bool",
-                "description": "Whether to recursively download folders and their contents",
+                "description": "Whether to recursively download folders and their contents. ONLY valid with entity_type='folder'",
                 "default": False,
             },
             {
@@ -55,12 +55,18 @@ description = [
                 "description": "Timeout in seconds for each download operation",
                 "default": 300,
             },
+            {
+                "name": "entity_type",
+                "type": "str",
+                "description": "Type of Synapse entity: 'file', 'dataset', 'folder', or 'project'. MUST match actual entity type! Check user hints (e.g., 'files' means entity_type='file') or search results ('node_type' field). Default 'dataset' should only be used for actual datasets.",
+                "default": "dataset",
+            },
         ],
         "required_parameters": [
             {
                 "name": "entity_ids",
                 "type": "str|list[str]",
-                "description": "Synapse entity ID(s) to download (e.g., 'syn123456' or ['syn123', 'syn456'])",
+                "description": "Synapse entity ID(s) to download. For files: single ID or list of IDs. For datasets/folders/projects: single ID only",
                 "default": None,
             }
         ],
