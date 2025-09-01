@@ -51,6 +51,7 @@ class A1:
         timeout_seconds: int | None = None,
         base_url: str | None = None,
         api_key: str | None = None,
+        expected_data_lake_files: list | None = None,
     ):
         """Initialize the biomni agent.
 
@@ -123,7 +124,8 @@ class A1:
         os.makedirs(benchmark_dir, exist_ok=True)
         os.makedirs(data_lake_dir, exist_ok=True)
 
-        expected_data_lake_files = list(data_lake_dict.keys())
+        if expected_data_lake_files is None:
+            expected_data_lake_files = list(data_lake_dict.keys())
 
         # Check and download missing data lake files
         print("Checking and downloading missing data lake files...")
