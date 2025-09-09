@@ -14,7 +14,6 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from biomni.config import default_config
-from biomni.env_desc import data_lake_dict, library_content_dict
 from biomni.llm import SourceType, get_llm
 from biomni.model.retriever import ToolRetriever
 from biomni.tool.support_tools import run_python_repl
@@ -50,6 +49,7 @@ class A1:
         timeout_seconds: int | None = None,
         base_url: str | None = None,
         api_key: str | None = None,
+        commercial_mode: bool | None = None,
         expected_data_lake_files: list | None = None,
     ):
         """Initialize the biomni agent.
@@ -62,6 +62,7 @@ class A1:
             timeout_seconds: Timeout for code execution in seconds
             base_url: Base URL for custom model serving (e.g., "http://localhost:8000/v1")
             api_key: API key for the custom LLM
+            commercial_mode: If True, excludes datasets that require commercial licenses or are non-commercial only
 
         """
         # Use default_config values for unspecified parameters
@@ -79,6 +80,21 @@ class A1:
             base_url = default_config.base_url
         if api_key is None:
             api_key = default_config.api_key if default_config.api_key else "EMPTY"
+        if commercial_mode is None:
+            commercial_mode = default_config.commercial_mode
+
+        # Import appropriate env_desc based on commercial_mode
+        if commercial_mode:
+            from biomni.env_desc_cm import data_lake_dict, library_content_dict
+            print("🏢 Commercial mode: Using commercial-licensed datasets only")
+        else:
+            from biomni.env_desc import data_lake_dict, library_content_dict
+            print("🎓 Academic mode: Using all datasets (including non-commercial)")
+        
+        # Store as instance attributes for later use
+        self.data_lake_dict = data_lake_dict
+        self.library_content_dict = library_content_dict
+        self.commercial_mode = commercial_mode
 
         # Display configuration in a nice, readable format
         print("\n" + "=" * 50)
@@ -94,7 +110,12 @@ class A1:
         config_dict = default_config.to_dict()
         for key, value in config_dict.items():
             if value is not None:
-                print(f"  {key.replace('_', ' ').title()}: {value}")
+                # Special formatting for commercial_mode
+                if key == 'commercial_mode':
+                    mode_text = "Commercial (licensed datasets only)" if value else "Academic (all datasets)"
+                    print(f"  {key.replace('_', ' ').title()}: {mode_text}")
+                else:
+                    print(f"  {key.replace('_', ' ').title()}: {value}")
 
         # Show agent-specific LLM if different from default
         if agent_llm != default_config.llm or agent_source != default_config.source:
@@ -124,7 +145,7 @@ class A1:
         os.makedirs(data_lake_dir, exist_ok=True)
 
         if expected_data_lake_files is None:
-            expected_data_lake_files = list(data_lake_dict.keys())
+            expected_data_lake_files = list(self.data_lake_dict.keys())
 
         # Check and download missing data lake files
         print("Checking and downloading missing data lake files...")
@@ -1185,10 +1206,7 @@ Each library is listed with its description to help you understand its functiona
         data_lake_content = glob.glob(data_lake_path + "/*")
         data_lake_items = [x.split("/")[-1] for x in data_lake_content]
 
-        # Store data_lake_dict as instance variable for use in retrieval
-        self.data_lake_dict = data_lake_dict
-        # Store library_content_dict directly without library_content
-        self.library_content_dict = library_content_dict
+        # data_lake_dict and library_content_dict are already set in __init__
 
         # Prepare tool descriptions
         tool_desc = {i: [x for x in j if x["name"] != "run_python_repl"] for i, j in self.module2api.items()}
