@@ -45,7 +45,7 @@ from biomni.agent import A1
 # For commercial use (excludes non-commercial datasets)
 agent = A1(commercial_mode=True)
 
-# For academic/research use (includes all datasets)  
+# For academic/research use (includes all datasets)
 agent = A1(commercial_mode=False)  # default
 ```
 

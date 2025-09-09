@@ -86,11 +86,13 @@ class A1:
         # Import appropriate env_desc based on commercial_mode
         if commercial_mode:
             from biomni.env_desc_cm import data_lake_dict, library_content_dict
+
             print("🏢 Commercial mode: Using commercial-licensed datasets only")
         else:
             from biomni.env_desc import data_lake_dict, library_content_dict
+
             print("🎓 Academic mode: Using all datasets (including non-commercial)")
-        
+
         # Store as instance attributes for later use
         self.data_lake_dict = data_lake_dict
         self.library_content_dict = library_content_dict
@@ -111,7 +113,7 @@ class A1:
         for key, value in config_dict.items():
             if value is not None:
                 # Special formatting for commercial_mode
-                if key == 'commercial_mode':
+                if key == "commercial_mode":
                     mode_text = "Commercial (licensed datasets only)" if value else "Academic (all datasets)"
                     print(f"  {key.replace('_', ' ').title()}: {mode_text}")
                 else:
