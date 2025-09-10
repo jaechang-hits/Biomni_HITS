@@ -30,8 +30,7 @@ def unsupervised_celltype_transfer_between_scRNA_datasets(
     n_samples_per_label: int = 10,
 ):
     import os
-    import logging
-    import pandas as pd
+
     import scanpy as sc
 
     os.environ["PYTHONUTF8"] = "1"
