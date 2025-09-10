@@ -52,8 +52,8 @@ def interspecies_gene_conversion(
 
     Examples
     --------
-    >>> gene_ids = ['ENSG00000007372', 'ENSG00000181449']
-    >>> result = interspecies_gene_conversion(gene_ids, 'human', 'mouse')
+    >>> gene_ids = ["ENSG00000007372", "ENSG00000181449"]
+    >>> result = interspecies_gene_conversion(gene_ids, "human", "mouse")
     >>> print(result)
     Gene conversion results saved to: human_to_mouse_gene_conversion.csv
     """
@@ -122,7 +122,7 @@ def interspecies_gene_conversion(
             mapping = all_mapping[all_mapping["ensembl_gene_id"].isin(gene_list)]
 
         mapping_filtered = mapping[mapping.iloc[:, 1].notna() & (mapping.iloc[:, 1] != "")]
-        gene_mapping = dict(zip(mapping_filtered.iloc[:, 0], mapping_filtered.iloc[:, 1]))
+        gene_mapping = dict(zip(mapping_filtered.iloc[:, 0], mapping_filtered.iloc[:, 1], strict=False))
 
         converted_genes = []
         for gene in gene_list:
@@ -150,7 +150,7 @@ def interspecies_gene_conversion(
             mapping = all_mapping[all_mapping["ensembl_gene_id"].isin(gene_list)]
 
             mapping_filtered = mapping[mapping.iloc[:, 1].notna() & (mapping.iloc[:, 1] != "")]
-            gene_mapping = dict(zip(mapping_filtered.iloc[:, 0], mapping_filtered.iloc[:, 1]))
+            gene_mapping = dict(zip(mapping_filtered.iloc[:, 0], mapping_filtered.iloc[:, 1], strict=False))
 
             converted_genes = []
             for gene in gene_list:
