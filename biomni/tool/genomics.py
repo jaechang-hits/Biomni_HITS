@@ -1,16 +1,23 @@
 import os
+import requests
+from pathlib import Path
+from typing import Dict, List
 
 import gget
 import gseapy
 import numpy as np
 import pandas as pd
 import scanpy as sc
+import torch
+import esm
+from tqdm import tqdm
 
 from biomni.llm import get_llm
 
 
-def fetch_isoform_sequences(ensembl_gene_id: str) -> List[str]:
+def fetch_isoform_sequences(ensembl_gene_id: str) -> list[str]:
     """
+    this is not registered as a tool
     Fetch all protein isoform FASTA sequences for a given Ensembl gene ID.
     Returns a list of protein sequences (strings) for each isoform, or an empty list if not found.
     For ENSG00000012048, removes the sequence with header containing 'ENSP00000420781.2'.
@@ -38,58 +45,133 @@ def fetch_isoform_sequences(ensembl_gene_id: str) -> List[str]:
     return sequences
 
 
-def generate_gene_embeddings(
-    ensembl_gene_ids: List[str],
+def generate_gene_embeddings_with_ESM_models(
+    ensembl_gene_ids: list[str],
     model_name: str = "esm2_t6_8M_UR50D",
     layer: int = 6,
-    save_path: Optional[str] = None,
-) -> Dict[str, np.ndarray]:
+    save_path: str | None = None,
+    batch_size: int = 1,
+    max_sequence_length: int = 1024,
+) -> str:
     """
     Generate average protein embeddings for a list of Ensembl gene IDs.
+    Memory-friendly implementation with rolling averages and small batch processing.
 
     Args:
         ensembl_gene_ids: List of Ensembl gene IDs (e.g., ["ENSG00000012048", ...])
         model_name: ESM model name to use (default: "esm2_t6_8M_UR50D")
         layer: Which layer to extract embeddings from (default: 6)
         save_path: Optional path to save embeddings as PyTorch dict (default: None)
+        batch_size: Number of sequences to process at once (default: 1)
+        max_sequence_length: Maximum sequence length to process (default: 1024)
 
     Returns:
-        Dictionary mapping gene IDs to their average protein embeddings (numpy arrays)
+        String containing the steps performed during the embedding generation process
     """
-    print(f"Loading ESM model: {model_name}")
+    steps = []
+    steps.append(f"Loading ESM model: {model_name}")
+    # model loading take a while, once loaded for smaller models generation is relatively fast
+    # running bilion model ESM models require FSDP or GPUs with 80 GB of memory
     model, alphabet = esm.pretrained.load_model_and_alphabet(model_name)
     batch_converter = alphabet.get_batch_converter()
     model.eval()
 
-    print("Fetching protein isoform sequences...")
+    # Move model to GPU if available
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+    steps.append(f"Using device: {device}")
+
+    steps.append("Fetching protein isoform sequences...")
     ensembl_gene_isoforms_map: Dict[str, List[str]] = {}
     for ensembl_id in tqdm(ensembl_gene_ids, desc="Fetching sequences"):
         isoform_sequences = fetch_isoform_sequences(ensembl_id)
-        ensembl_gene_isoforms_map[ensembl_id] = isoform_sequences
+        # Filter sequences by length to avoid memory issues
+        filtered_sequences = [seq for seq in isoform_sequences if len(seq) <= max_sequence_length]
+        if filtered_sequences:
+            ensembl_gene_isoforms_map[ensembl_id] = filtered_sequences
+        else:
+            steps.append(f"  No sequences under {max_sequence_length} residues found for gene {ensembl_id}")
 
+    # Prepare all data for processing
+    all_data: List[tuple[str, str]] = []
+    for gene, isoform_seqs in ensembl_gene_isoforms_map.items():
+        for i, seq in enumerate(isoform_seqs):
+            all_data.append((f"{gene}_isoform_{i}", seq))
+
+    steps.append(f"Processing {len(all_data)} sequences in batches of {batch_size}")
+
+    # Rolling average tracking
+    gene_embeddings: Dict[str, List[torch.Tensor]] = {}
     gene_avg_embedding: Dict[str, np.ndarray] = {}
 
-    for gene, isoform_seqs in tqdm(ensembl_gene_isoforms_map.items(), desc="Embedding all genes"):
-        print(f"\nProcessing gene: {gene}")
-        if not isoform_seqs:
-            print(f"  No isoform sequences found for gene {gene}, skipping.")
-            continue
-        print(f"  Preparing {len(isoform_seqs)} isoform sequences for embedding...")
-        data: List[tuple[str, str]] = [(f"{gene}_isoform_{i}", seq) for i, seq in enumerate(isoform_seqs)]
-        batch_labels, batch_strs, batch_tokens = batch_converter(data)
-        batch_lens: torch.Tensor = (batch_tokens != alphabet.padding_idx).sum(1)
-        print(f"  Running ESM model to extract embeddings...")
-        with torch.no_grad():
-            results = model(batch_tokens, repr_layers=[layer], return_contacts=False)
-        token_representations: torch.Tensor = results["representations"][layer]
-        sequence_representations: List[np.ndarray] = []
-        for i, tokens_len in tqdm(list(enumerate(batch_lens)), desc=f"Embedding isoforms for {gene}", leave=False):
-            print(f"    Embedding isoform {i+1}/{len(batch_lens)} (length: {tokens_len-2} residues)")
-            sequence_representations.append(token_representations[i, 1 : tokens_len - 1].mean(0).cpu().numpy())
-        print(f"  Averaging embeddings for gene {gene} across {len(sequence_representations)} isoforms.")
-        avg_embedding: np.ndarray = np.stack(sequence_representations).mean(axis=0)
-        gene_avg_embedding[gene] = avg_embedding
-        print(f"  Finished processing gene: {gene}")
+    # Process in small batches to avoid memory issues
+    for i in tqdm(range(0, len(all_data), batch_size), desc="Processing ESM embeddings"):
+        batch_data = all_data[i : i + batch_size]
+
+        try:
+            batch_labels, batch_strs, batch_tokens = batch_converter(batch_data)
+            batch_tokens = batch_tokens.to(device)
+            batch_lens: torch.Tensor = (batch_tokens != alphabet.padding_idx).sum(1)
+
+            steps.append(f"  Running ESM model on batch {i//batch_size + 1}...")
+            with torch.no_grad():
+                results = model(batch_tokens, repr_layers=[layer], return_contacts=False)
+            token_representations: torch.Tensor = results["representations"][layer]
+
+            # Process each sequence in the batch
+            for j, tokens_len in enumerate(batch_lens):
+                # Extract gene name from label (remove _isoform_X suffix)
+                gene_name = batch_labels[j].split("_isoform_")[0]
+
+                # Get sequence embedding (excluding BOS/EOS tokens)
+                sequence_embedding = token_representations[j, 1 : tokens_len - 1].mean(0).detach().cpu()
+
+                # Store embedding for this gene
+                if gene_name not in gene_embeddings:
+                    gene_embeddings[gene_name] = []
+                gene_embeddings[gene_name].append(sequence_embedding)
+
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower():
+                steps.append(f"  Memory error on batch {i//batch_size + 1}, reducing batch size...")
+                # Clear cache and try with smaller batch
+                torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                # Process this batch one by one
+                for single_item in batch_data:
+                    try:
+                        single_batch_labels, single_batch_strs, single_batch_tokens = batch_converter([single_item])
+                        single_batch_tokens = single_batch_tokens.to(device)
+                        single_batch_lens: torch.Tensor = (single_batch_tokens != alphabet.padding_idx).sum(1)
+
+                        with torch.no_grad():
+                            single_results = model(single_batch_tokens, repr_layers=[layer], return_contacts=False)
+                        single_token_representations: torch.Tensor = single_results["representations"][layer]
+
+                        gene_name = single_item[0].split("_isoform_")[0]
+                        sequence_embedding = (
+                            single_token_representations[0, 1 : single_batch_lens[0] - 1].mean(0).detach().cpu()
+                        )
+
+                        if gene_name not in gene_embeddings:
+                            gene_embeddings[gene_name] = []
+                        gene_embeddings[gene_name].append(sequence_embedding)
+
+                    except Exception as single_e:
+                        steps.append(f"    Failed to process {single_item[0]}: {str(single_e)}")
+            else:
+                steps.append(f"  Error processing batch {i//batch_size + 1}: {str(e)}")
+
+    # Compute final averages for each gene
+    steps.append("Computing final gene embeddings...")
+    for gene, embeddings in gene_embeddings.items():
+        if embeddings:
+            # Stack all embeddings for this gene and compute mean
+            stacked_embeddings = torch.stack(embeddings, dim=0)
+            avg_embedding = stacked_embeddings.mean(dim=0).numpy()
+            gene_avg_embedding[gene] = avg_embedding
+            steps.append(f"  Gene {gene}: averaged {len(embeddings)} isoform embeddings")
+        else:
+            steps.append(f"  Gene {gene}: no valid embeddings found")
 
     if save_path:
         save_dir = Path(save_path).parent
@@ -98,10 +180,10 @@ def generate_gene_embeddings(
         torch_embeddings = {gene_id: torch.from_numpy(embedding) for gene_id, embedding in gene_avg_embedding.items()}
 
         torch.save(torch_embeddings, save_path)
-        print(f"\nEmbeddings saved to: {os.path.abspath(save_path)}")
-        print(f"File size: {os.path.getsize(save_path) / (1024*1024):.2f} MB")
+        steps.append(f"Embeddings saved to: {os.path.abspath(save_path)}")
+        steps.append(f"File size: {os.path.getsize(save_path) / (1024*1024):.2f} MB")
 
-    return gene_avg_embedding
+    return "\n".join(steps)
 
 
 def annotate_celltype_scRNA(
