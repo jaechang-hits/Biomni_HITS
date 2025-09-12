@@ -9,6 +9,101 @@ import scanpy as sc
 from biomni.llm import get_llm
 
 
+def fetch_isoform_sequences(ensembl_gene_id: str) -> List[str]:
+    """
+    Fetch all protein isoform FASTA sequences for a given Ensembl gene ID.
+    Returns a list of protein sequences (strings) for each isoform, or an empty list if not found.
+    For ENSG00000012048, removes the sequence with header containing 'ENSP00000420781.2'.
+
+    Args:
+        ensembl_gene_id: Ensembl gene identifier (e.g., "ENSG00000012048")
+
+    Returns:
+        List of protein sequences as strings
+    """
+    url = f"https://rest.ensembl.org/sequence/id/{ensembl_gene_id}?type=protein;multiple_sequences=1"
+    headers = {"Content-Type": "text/x-fasta"}
+    response = requests.get(url, headers=headers)
+    if not response.ok or not response.text.startswith(">"):
+        return []
+    sequences = []
+    fasta_entries = response.text.strip().split(">")
+    for entry in fasta_entries:
+        if not entry.strip():
+            continue
+        lines = entry.strip().splitlines()
+        header = lines[0]
+        sequence = "".join(lines[1:])
+        sequences.append(sequence)
+    return sequences
+
+
+def generate_gene_embeddings(
+    ensembl_gene_ids: List[str],
+    model_name: str = "esm2_t6_8M_UR50D",
+    layer: int = 6,
+    save_path: Optional[str] = None,
+) -> Dict[str, np.ndarray]:
+    """
+    Generate average protein embeddings for a list of Ensembl gene IDs.
+
+    Args:
+        ensembl_gene_ids: List of Ensembl gene IDs (e.g., ["ENSG00000012048", ...])
+        model_name: ESM model name to use (default: "esm2_t6_8M_UR50D")
+        layer: Which layer to extract embeddings from (default: 6)
+        save_path: Optional path to save embeddings as PyTorch dict (default: None)
+
+    Returns:
+        Dictionary mapping gene IDs to their average protein embeddings (numpy arrays)
+    """
+    print(f"Loading ESM model: {model_name}")
+    model, alphabet = esm.pretrained.load_model_and_alphabet(model_name)
+    batch_converter = alphabet.get_batch_converter()
+    model.eval()
+
+    print("Fetching protein isoform sequences...")
+    ensembl_gene_isoforms_map: Dict[str, List[str]] = {}
+    for ensembl_id in tqdm(ensembl_gene_ids, desc="Fetching sequences"):
+        isoform_sequences = fetch_isoform_sequences(ensembl_id)
+        ensembl_gene_isoforms_map[ensembl_id] = isoform_sequences
+
+    gene_avg_embedding: Dict[str, np.ndarray] = {}
+
+    for gene, isoform_seqs in tqdm(ensembl_gene_isoforms_map.items(), desc="Embedding all genes"):
+        print(f"\nProcessing gene: {gene}")
+        if not isoform_seqs:
+            print(f"  No isoform sequences found for gene {gene}, skipping.")
+            continue
+        print(f"  Preparing {len(isoform_seqs)} isoform sequences for embedding...")
+        data: List[tuple[str, str]] = [(f"{gene}_isoform_{i}", seq) for i, seq in enumerate(isoform_seqs)]
+        batch_labels, batch_strs, batch_tokens = batch_converter(data)
+        batch_lens: torch.Tensor = (batch_tokens != alphabet.padding_idx).sum(1)
+        print(f"  Running ESM model to extract embeddings...")
+        with torch.no_grad():
+            results = model(batch_tokens, repr_layers=[layer], return_contacts=False)
+        token_representations: torch.Tensor = results["representations"][layer]
+        sequence_representations: List[np.ndarray] = []
+        for i, tokens_len in tqdm(list(enumerate(batch_lens)), desc=f"Embedding isoforms for {gene}", leave=False):
+            print(f"    Embedding isoform {i+1}/{len(batch_lens)} (length: {tokens_len-2} residues)")
+            sequence_representations.append(token_representations[i, 1 : tokens_len - 1].mean(0).cpu().numpy())
+        print(f"  Averaging embeddings for gene {gene} across {len(sequence_representations)} isoforms.")
+        avg_embedding: np.ndarray = np.stack(sequence_representations).mean(axis=0)
+        gene_avg_embedding[gene] = avg_embedding
+        print(f"  Finished processing gene: {gene}")
+
+    if save_path:
+        save_dir = Path(save_path).parent
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        torch_embeddings = {gene_id: torch.from_numpy(embedding) for gene_id, embedding in gene_avg_embedding.items()}
+
+        torch.save(torch_embeddings, save_path)
+        print(f"\nEmbeddings saved to: {os.path.abspath(save_path)}")
+        print(f"File size: {os.path.getsize(save_path) / (1024*1024):.2f} MB")
+
+    return gene_avg_embedding
+
+
 def annotate_celltype_scRNA(
     adata_filename,
     data_dir,
@@ -53,6 +148,7 @@ def annotate_celltype_scRNA(
         return "\n".join(info) + " " + "; ".join(cluster_comp) + "\n"
 
     from langchain_core.prompts import PromptTemplate
+
     # from langchain.chains import LLMChain
 
     steps = []
@@ -211,7 +307,8 @@ def annotate_celltype_with_panhumanpy(
     script_path = os.path.join(temp_dir, "run_panhumanpy.py")
     result_path = os.path.join(temp_dir, "result.json")
     with open(script_path, "w") as f:
-        f.write(f"""
+        f.write(
+            f"""
 import os
 import sys
 import json
@@ -312,7 +409,8 @@ except Exception as e:
     with open(r'{result_path}', 'w') as out:
         out.write(json.dumps({{"error": str(e)}}))
     sys.exit(1)
-""")
+"""
+        )
 
     # 3. Run the script in the panhumanpy_env
     try:

@@ -458,4 +458,56 @@ description = [
             }
         ],
     },
+    {
+        "description": "Fetch all protein isoform FASTA sequences for a given Ensembl gene ID from the Ensembl REST API. "
+        "This function retrieves multiple protein sequences corresponding to different isoforms of a gene, "
+        "parses the multi-FASTA response, and returns a list of protein sequences. "
+        "For specific genes like ENSG00000012048, it includes special handling to exclude certain isoforms.",
+        "name": "fetch_isoform_sequences",
+        "optional_parameters": [],
+        "required_parameters": [
+            {
+                "default": None,
+                "description": "Ensembl gene identifier (e.g., 'ENSG00000012048')",
+                "name": "ensembl_gene_id",
+                "type": "str",
+            }
+        ],
+    },
+    {
+        "description": "Generate average protein embeddings for a list of Ensembl gene IDs using ESM (Evolutionary Scale Modeling) "
+        "protein language models. This function fetches all protein isoform sequences for each gene, "
+        "computes embeddings for each isoform using the specified ESM model and layer, then averages "
+        "the embeddings across all isoforms to create a single representative embedding per gene. "
+        "The embeddings can be optionally saved as PyTorch tensors for future use.",
+        "name": "generate_gene_embeddings",
+        "optional_parameters": [
+            {
+                "default": "esm2_t6_8M_UR50D",
+                "description": "ESM model name to use for generating embeddings",
+                "name": "model_name",
+                "type": "str",
+            },
+            {
+                "default": 6,
+                "description": "Which layer of the ESM model to extract embeddings from",
+                "name": "layer",
+                "type": "int",
+            },
+            {
+                "default": None,
+                "description": "Optional path to save embeddings as PyTorch dictionary",
+                "name": "save_path",
+                "type": "str",
+            },
+        ],
+        "required_parameters": [
+            {
+                "default": None,
+                "description": "List of Ensembl gene IDs (e.g., ['ENSG00000012048', 'ENSG00000012049'])",
+                "name": "ensembl_gene_ids",
+                "type": "List[str]",
+            }
+        ],
+    },
 ]
