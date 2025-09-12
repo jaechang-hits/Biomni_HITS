@@ -1,15 +1,14 @@
 import os
-import requests
 from pathlib import Path
-from typing import Dict, List
 
+import esm
 import gget
 import gseapy
 import numpy as np
 import pandas as pd
+import requests
 import scanpy as sc
 import torch
-import esm
 from tqdm import tqdm
 
 from biomni.llm import get_llm
@@ -39,7 +38,7 @@ def fetch_isoform_sequences(ensembl_gene_id: str) -> list[str]:
         if not entry.strip():
             continue
         lines = entry.strip().splitlines()
-        header = lines[0]
+        lines[0]
         sequence = "".join(lines[1:])
         sequences.append(sequence)
     return sequences
@@ -82,7 +81,7 @@ def generate_gene_embeddings_with_ESM_models(
     steps.append(f"Using device: {device}")
 
     steps.append("Fetching protein isoform sequences...")
-    ensembl_gene_isoforms_map: Dict[str, List[str]] = {}
+    ensembl_gene_isoforms_map: dict[str, list[str]] = {}
     for ensembl_id in tqdm(ensembl_gene_ids, desc="Fetching sequences"):
         isoform_sequences = fetch_isoform_sequences(ensembl_id)
         # Filter sequences by length to avoid memory issues
@@ -93,7 +92,7 @@ def generate_gene_embeddings_with_ESM_models(
             steps.append(f"  No sequences under {max_sequence_length} residues found for gene {ensembl_id}")
 
     # Prepare all data for processing
-    all_data: List[tuple[str, str]] = []
+    all_data: list[tuple[str, str]] = []
     for gene, isoform_seqs in ensembl_gene_isoforms_map.items():
         for i, seq in enumerate(isoform_seqs):
             all_data.append((f"{gene}_isoform_{i}", seq))
@@ -101,8 +100,8 @@ def generate_gene_embeddings_with_ESM_models(
     steps.append(f"Processing {len(all_data)} sequences in batches of {batch_size}")
 
     # Rolling average tracking
-    gene_embeddings: Dict[str, List[torch.Tensor]] = {}
-    gene_avg_embedding: Dict[str, np.ndarray] = {}
+    gene_embeddings: dict[str, list[torch.Tensor]] = {}
+    gene_avg_embedding: dict[str, np.ndarray] = {}
 
     # Process in small batches to avoid memory issues
     for i in tqdm(range(0, len(all_data), batch_size), desc="Processing ESM embeddings"):
@@ -113,7 +112,7 @@ def generate_gene_embeddings_with_ESM_models(
             batch_tokens = batch_tokens.to(device)
             batch_lens: torch.Tensor = (batch_tokens != alphabet.padding_idx).sum(1)
 
-            steps.append(f"  Running ESM model on batch {i//batch_size + 1}...")
+            steps.append(f"  Running ESM model on batch {i // batch_size + 1}...")
             with torch.no_grad():
                 results = model(batch_tokens, repr_layers=[layer], return_contacts=False)
             token_representations: torch.Tensor = results["representations"][layer]
@@ -133,7 +132,7 @@ def generate_gene_embeddings_with_ESM_models(
 
         except RuntimeError as e:
             if "out of memory" in str(e).lower():
-                steps.append(f"  Memory error on batch {i//batch_size + 1}, reducing batch size...")
+                steps.append(f"  Memory error on batch {i // batch_size + 1}, reducing batch size...")
                 # Clear cache and try with smaller batch
                 torch.cuda.empty_cache() if torch.cuda.is_available() else None
                 # Process this batch one by one
@@ -159,7 +158,7 @@ def generate_gene_embeddings_with_ESM_models(
                     except Exception as single_e:
                         steps.append(f"    Failed to process {single_item[0]}: {str(single_e)}")
             else:
-                steps.append(f"  Error processing batch {i//batch_size + 1}: {str(e)}")
+                steps.append(f"  Error processing batch {i // batch_size + 1}: {str(e)}")
 
     # Compute final averages for each gene
     steps.append("Computing final gene embeddings...")
@@ -181,7 +180,7 @@ def generate_gene_embeddings_with_ESM_models(
 
         torch.save(torch_embeddings, save_path)
         steps.append(f"Embeddings saved to: {os.path.abspath(save_path)}")
-        steps.append(f"File size: {os.path.getsize(save_path) / (1024*1024):.2f} MB")
+        steps.append(f"File size: {os.path.getsize(save_path) / (1024 * 1024):.2f} MB")
 
     return "\n".join(steps)
 
