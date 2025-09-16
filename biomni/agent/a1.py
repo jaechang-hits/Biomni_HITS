@@ -3,6 +3,7 @@ import inspect
 import os
 import re
 from collections.abc import Generator
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
@@ -1342,15 +1343,44 @@ Each library is listed with its description to help you understand its functiona
                         result = run_with_timeout(run_bash_script, [bash_script], timeout=timeout)
                 # Otherwise, run as Python code
                 else:
+                    # Clear any previous plots before execution
+                    self._clear_execution_plots()
+
                     # Inject custom functions into the Python execution environment
                     self._inject_custom_functions_to_repl()
                     result = run_with_timeout(run_python_repl, [code], timeout=timeout)
+
+                    # Plots are now captured directly in the execution entry above
 
                 if len(result) > 10000:
                     result = (
                         "The output is too long to be added to context. Here are the first 10K characters...\n"
                         + result[:10000]
                     )
+
+                # Store the execution result with the triggering message
+                if not hasattr(self, "_execution_results"):
+                    self._execution_results = []
+
+                # Get any plots that were generated during this execution
+                execution_plots = []
+                try:
+                    from biomni.tool.support_tools import get_captured_plots
+
+                    current_plots = get_captured_plots()
+                    execution_plots = current_plots.copy()
+                except Exception as e:
+                    print(f"Warning: Could not capture plots from execution: {e}")
+                    execution_plots = []
+
+                # Store the execution result with metadata
+                execution_entry = {
+                    "triggering_message": last_message,  # The AI message that contained <execute>
+                    "images": execution_plots,  # Base64 encoded images from this execution
+                    "timestamp": datetime.now().isoformat(),
+                }
+                self._execution_results.append(execution_entry)
+
                 observation = f"\n<observation>{result}</observation>"
                 state["messages"].append(AIMessage(content=observation.strip()))
 
@@ -1540,10 +1570,17 @@ Each library is listed with its description to help you understand its functiona
         config = {"recursion_limit": 500, "configurable": {"thread_id": 42}}
         self.log = []
 
+        # Store the final conversation state for markdown generation
+        final_state = None
+
         for s in self.app.stream(inputs, stream_mode="values", config=config):
             message = s["messages"][-1]
             out = pretty_print(message)
             self.log.append(out)
+            final_state = s  # Store the latest state
+
+        # Store the conversation state for markdown generation
+        self._conversation_state = final_state
 
         return self.log, message.content
 
@@ -1570,13 +1607,20 @@ Each library is listed with its description to help you understand its functiona
         config = {"recursion_limit": 500, "configurable": {"thread_id": 42}}
         self.log = []
 
+        # Store the final conversation state for markdown generation
+        final_state = None
+
         for s in self.app.stream(inputs, stream_mode="values", config=config):
             message = s["messages"][-1]
             out = pretty_print(message)
             self.log.append(out)
+            final_state = s  # Store the latest state
 
             # Yield the current step
             yield {"output": out}
+
+        # Store the conversation state for markdown generation
+        self._conversation_state = final_state
 
     def update_system_prompt_with_selected_resources(self, selected_resources):
         """Update the system prompt with the selected resources."""
@@ -1791,6 +1835,628 @@ Each library is listed with its description to help you understand its functiona
 
         print(f"Created MCP server with {registered_tools} tools")
         return mcp
+
+    def save_conversation_history(self, filepath: str, include_images: bool = True, save_pdf: bool = True) -> None:
+        """Save the complete conversation history as markdown and optionally PDF.
+
+        Args:
+            filepath: Path where to save the files (without extension)
+            include_images: Whether to include images in the output
+            save_pdf: Whether to also save as PDF
+        """
+        import os
+        import base64
+        from datetime import datetime
+        import re
+
+        # Ensure directory exists
+        directory = os.path.dirname(filepath)
+        if directory:  # Only create directory if it's not empty
+            os.makedirs(directory, exist_ok=True)
+
+        # Create markdown file path
+        markdown_path = filepath if filepath.endswith(".md") else f"{filepath}.md"
+
+        # Create markdown content
+        markdown_content = self._generate_markdown_content(include_images)
+
+        # Save markdown file
+        with open(markdown_path, "w", encoding="utf-8") as f:
+            f.write(markdown_content)
+
+        print(f"Conversation history saved as markdown: {markdown_path}")
+        print(f"Total steps recorded: {len(self.log)}")
+
+        # Convert to PDF if requested
+        if save_pdf:
+            pdf_path = filepath if filepath.endswith(".pdf") else f"{filepath}.pdf"
+            try:
+                self._convert_markdown_to_pdf(markdown_path, pdf_path)
+                print(f"Conversation history also saved as PDF: {pdf_path}")
+            except Exception as e:
+                print(f"Warning: Could not convert to PDF: {e}")
+                print("Markdown file saved successfully, but PDF conversion failed")
+
+    def _generate_markdown_content(self, include_images: bool = True) -> str:
+        """Generate markdown content from conversation history using both log and conversation state."""
+        from datetime import datetime
+        import re
+
+        # Header
+        content = """# Biomni Agent Conversation History
+
+"""
+
+        # Track plots that have been added to avoid duplicates
+        added_plots = set()
+
+        # Track step numbers and whether we've shown the first human prompt
+        step_number = 0
+        first_human_shown = False
+
+        # Get conversation state if available
+        conversation_state = getattr(self, "_conversation_state", None)
+
+        # If we have conversation state, use it; otherwise fall back to log
+        if conversation_state and hasattr(conversation_state, "get") and "messages" in conversation_state:
+            # Use conversation state messages
+            messages = conversation_state["messages"]
+            print(f"DEBUG: Using conversation state with {len(messages)} messages")
+
+            for i, message in enumerate(messages, 1):
+                # Convert message to string representation
+                if hasattr(message, "content"):
+                    message_content = str(message.content)
+                else:
+                    message_content = str(message)
+
+                # Clean up the content for markdown
+                clean_output = message_content
+
+                # Remove ANSI color codes
+                clean_output = re.sub(r"\x1b\[[0-9;]*m", "", clean_output)
+
+                # Detect message type and add to markdown
+                if isinstance(message, HumanMessage):
+                    if not first_human_shown:
+                        content += "#### 👤 Human\n\n"
+                        content += f"{clean_output}\n\n"
+                        first_human_shown = True
+                    # Skip subsequent human messages
+                elif isinstance(message, AIMessage):
+                    # Check if this is an observation message
+                    if "observation" in clean_output.lower():
+                        content += '<h4 class="observation-header">📊 Observation</h4>\n\n'
+                        formatted_observation = self._format_observation_as_terminal(clean_output)
+                        content += f"{formatted_observation}\n\n"
+                    else:
+                        step_number += 1
+                        content += f"#### Step {step_number}\n\n"
+
+                        # Check if this AI message contains execution and we have execution results
+                        if (
+                            "<execute>" in clean_output
+                            and hasattr(self, "_execution_results")
+                            and self._execution_results
+                        ):
+                            # Find matching execution result
+                            matching_execution = None
+                            for exec_result in self._execution_results:
+                                if (
+                                    exec_result["triggering_message"] in clean_output
+                                    or clean_output in exec_result["triggering_message"]
+                                ):
+                                    matching_execution = exec_result
+                                    break
+
+                            if matching_execution:
+                                # Process the AI message to extract and format execute tags
+                                formatted_content = self._format_execute_tags_in_content(clean_output)
+                                content += f"{formatted_content}\n\n"
+
+                                # Add any plots that were generated during this execution
+                                if include_images and matching_execution.get("images"):
+                                    for plot_data in matching_execution["images"]:
+                                        if plot_data not in added_plots:
+                                            content += f"![Generated Plot]({plot_data})\n\n"
+                                            added_plots.add(plot_data)
+                            else:
+                                # Process the AI message to extract and format execute tags
+                                formatted_content = self._format_execute_tags_in_content(clean_output)
+                                content += f"{formatted_content}\n\n"
+                        else:
+                            # Process the AI message to extract and format execute tags
+                            formatted_content = self._format_execute_tags_in_content(clean_output)
+                            content += f"{formatted_content}\n\n"
+                else:
+                    # For other message types, try to detect from content
+                    if "observation" in clean_output.lower():
+                        content += "#### 📊 Observation\n\n"
+                        formatted_observation = self._format_observation_as_terminal(clean_output)
+                        content += f"{formatted_observation}\n\n"
+                    else:
+                        content += f"{clean_output}\n\n"
+        else:
+            # Fall back to using self.log
+            print(f"DEBUG: Using self.log with {len(self.log)} entries")
+
+            # Process each log entry from pretty_print output
+            for i, log_entry in enumerate(self.log, 1):
+                # Clean up the formatted output for markdown
+                clean_output = str(log_entry)
+
+                # Remove ANSI color codes
+                clean_output = re.sub(r"\x1b\[[0-9;]*m", "", clean_output)
+
+                # Detect log entry type and add to markdown
+                if "Human Message" in clean_output:
+                    if not first_human_shown:
+                        content += "#### 👤 Human\n\n"
+                        content += f"{clean_output}\n\n"
+                        first_human_shown = True
+                    # Skip subsequent human messages
+                elif "Ai Message" in clean_output:
+                    # Check if this is an observation message
+                    if "observation" in clean_output.lower():
+                        content += '<h4 class="observation-header">📊 Observation</h4>\n\n'
+                        formatted_observation = self._format_observation_as_terminal(clean_output)
+                        content += f"{formatted_observation}\n\n"
+                    else:
+                        step_number += 1
+                        content += f"#### Step {step_number}\n\n"
+
+                        # Check if this AI message contains execution and we have execution results
+                        if (
+                            "<execute>" in clean_output
+                            and hasattr(self, "_execution_results")
+                            and self._execution_results
+                        ):
+                            # Find matching execution result
+                            matching_execution = None
+                            for exec_result in self._execution_results:
+                                if (
+                                    exec_result["triggering_message"] in clean_output
+                                    or clean_output in exec_result["triggering_message"]
+                                ):
+                                    matching_execution = exec_result
+                                    break
+
+                            if matching_execution:
+                                # Process the AI message to extract and format execute tags
+                                formatted_content = self._format_execute_tags_in_content(clean_output)
+                                content += f"{formatted_content}\n\n"
+
+                                # Add any plots that were generated during this execution
+                                if include_images and matching_execution.get("images"):
+                                    for plot_data in matching_execution["images"]:
+                                        if plot_data not in added_plots:
+                                            content += f"![Generated Plot]({plot_data})\n\n"
+                                            added_plots.add(plot_data)
+                            else:
+                                # Process the AI message to extract and format execute tags
+                                formatted_content = self._format_execute_tags_in_content(clean_output)
+                                content += f"{formatted_content}\n\n"
+                        else:
+                            # Process the AI message to extract and format execute tags
+                            formatted_content = self._format_execute_tags_in_content(clean_output)
+                            content += f"{formatted_content}\n\n"
+                elif "observation" in clean_output.lower():
+                    content += "#### 📊 Observation {.observation-header}\n\n"
+                    formatted_observation = self._format_observation_as_terminal(clean_output)
+                    content += f"{formatted_observation}\n\n"
+
+        return content
+
+    def _format_execute_tags_in_content(self, content: str) -> str:
+        """Format execute tags in content by extracting code and formatting as proper code blocks.
+
+        Args:
+            content: The content string that may contain <execute> tags
+
+        Returns:
+            Formatted content with execute tags converted to code blocks
+        """
+        import re
+
+        # Pattern to match <execute>...</execute> blocks
+        execute_pattern = r"<execute>(.*?)</execute>"
+
+        def replace_execute_tag(match):
+            code_content = match.group(1).strip()
+
+            # Detect the language based on markers
+            if (
+                code_content.startswith("#!R")
+                or code_content.startswith("# R code")
+                or code_content.startswith("# R script")
+            ):
+                # R code
+                r_code = re.sub(r"^#!R|^# R code|^# R script", "", code_content, 1).strip()
+                return f"```r\n{r_code}\n```"
+            elif code_content.startswith("#!BASH") or code_content.startswith("# Bash script"):
+                # Bash script
+                bash_code = re.sub(r"^#!BASH|^# Bash script", "", code_content, 1).strip()
+                return f"```bash\n{bash_code}\n```"
+            elif code_content.startswith("#!CLI"):
+                # CLI command
+                cli_code = re.sub(r"^#!CLI", "", code_content, 1).strip()
+                return f"```bash\n{cli_code}\n```"
+            else:
+                # Default to Python
+                return f"```python\n{code_content}\n```"
+
+        # Replace all execute tags with formatted code blocks
+        formatted_content = re.sub(execute_pattern, replace_execute_tag, content, flags=re.DOTALL)
+
+        # Also format solution tags
+        formatted_content = self._format_solution_tags_in_content(formatted_content)
+
+        return formatted_content
+
+    def _format_solution_tags_in_content(self, content: str) -> str:
+        """Format solution tags in content by extracting text and formatting as solution blocks.
+
+        Args:
+            content: The content string that may contain <solution> tags
+
+        Returns:
+            Formatted content with solution tags converted to solution blocks
+        """
+        import re
+
+        # Pattern to match <solution>...</solution> blocks
+        solution_pattern = r"<solution>(.*?)</solution>"
+
+        def replace_solution_tag(match):
+            solution_content = match.group(1).strip()
+            return f"```solution\n{solution_content}\n```"
+
+        # Replace all solution tags with formatted solution blocks
+        formatted_content = re.sub(solution_pattern, replace_solution_tag, content, flags=re.DOTALL)
+
+        return formatted_content
+
+    def _format_observation_as_terminal(self, content: str) -> str:
+        """Format observation content with terminal-like styling.
+
+        Args:
+            content: The observation content string
+
+        Returns:
+            Formatted content with terminal styling
+        """
+        import re
+
+        # Remove the <observation> tags and extract the content
+        observation_pattern = r"<observation>(.*?)</observation>"
+        observation_match = re.search(observation_pattern, content, re.DOTALL)
+
+        if observation_match:
+            observation_content = observation_match.group(1).strip()
+
+            # Check if it contains plot data (base64 images)
+            if "data:image/" in observation_content:
+                # This is likely a plot output, return as is
+                return observation_content
+            else:
+                # Regular text output - format as terminal output
+                return f"```terminal\n{observation_content}\n```"
+        else:
+            # Fallback if no observation tags found
+            return f"```terminal\n{content}\n```"
+
+    def _format_lists_in_text(self, text: str) -> str:
+        """Format numbered lists and bullet points in text to proper markdown format."""
+        import re
+
+        # Split text into lines
+        lines = text.split("\n")
+        formatted_lines = []
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                formatted_lines.append("")
+                continue
+
+            # Check for numbered lists with checkboxes (1. [ ] or 1. [✓] or 1. [✗])
+            if re.match(r"^\d+\.\s*\[[ ✓✗]\]", line):
+                # Extract the content after the checkbox
+                content = re.sub(r"^\d+\.\s*\[[ ✓✗]\]\s*", "", line)
+                
+                # Replace checkbox symbols with emojis
+                if "[✓]" in line:
+                    formatted_lines.append(f"- ✅ {content}")
+                elif "[✗]" in line:
+                    formatted_lines.append(f"- ❌ {content}")
+                else:
+                    formatted_lines.append(f"- ⬜ {content}")
+            # Check for regular numbered lists - convert to bullet points
+            elif re.match(r"^\d+\.\s+", line):
+                # This is a numbered list item - convert to bullet point
+                content = re.sub(r"^\d+\.\s+", "", line)
+                formatted_lines.append(f"- {content}")
+            # Check for bullet points
+            elif re.match(r"^[-*]\s+", line):
+                # This is already a bullet point
+                content = re.sub(r"^[-*]\s+", "", line)
+                formatted_lines.append(f"- {content}")
+            else:
+                formatted_lines.append(line)
+
+        return "\n".join(formatted_lines)
+
+    def _convert_markdown_to_pdf(self, markdown_path: str, pdf_path: str) -> None:
+        """Convert markdown file to PDF using weasyprint or markdown2pdf."""
+        try:
+            # Try weasyprint first (better for complex layouts)
+            import weasyprint
+            from weasyprint import HTML, CSS
+            from weasyprint.text.fonts import FontConfiguration
+            import base64
+            import re
+            import os
+            from datetime import datetime
+
+            # Read markdown content
+            with open(markdown_path, "r", encoding="utf-8") as f:
+                markdown_content = f.read()
+
+            # Convert markdown to HTML
+            import markdown
+
+            html_content = markdown.markdown(markdown_content, extensions=["codehilite", "fenced_code"])
+
+            # Add CSS styling
+            css_content = """
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                font-size: 9pt;
+                line-height: 1.4;
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 15px;
+                color: #333;
+            }
+            h1, h2, h3, h4, h5, h6 {
+                color: #2c3e50;
+                margin-top: 1em;
+                margin-bottom: 0.5em;
+            }
+            h1 {
+                border-bottom: 2px solid #3498db;
+                padding-bottom: 8px;
+                font-size: 16pt;
+            }
+            h2 {
+                border-bottom: 1px solid #bdc3c7;
+                padding-bottom: 3px;
+                font-size: 14pt;
+            }
+            h3 {
+                font-size: 12pt;
+            }
+            h4 {
+                font-size: 10pt;
+                margin-top: 0.8em;
+                margin-bottom: 0.3em;
+            }
+            h5, h6 {
+                font-size: 9pt;
+                margin-top: 0.6em;
+                margin-bottom: 0.2em;
+            }
+            code {
+                background-color: #f8f9fa;
+                padding: 1px 3px;
+                border-radius: 2px;
+                font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+                font-size: 8pt;
+                white-space: pre-wrap;
+                word-wrap: break-word;
+            }
+            pre {
+                background-color: #f8f9fa;
+                padding: 10px;
+                border-radius: 3px;
+                overflow-x: auto;
+                border-left: 3px solid #3498db;
+                white-space: pre-wrap;
+                word-wrap: break-word;
+                font-size: 8pt;
+                margin: 0.5em 0;
+            }
+            pre code {
+                background-color: transparent;
+                padding: 0;
+                border-radius: 0;
+                font-size: 8pt;
+            }
+            /* Python-specific styling */
+            pre code.language-python {
+                color: #2c3e50;
+            }
+            /* R-specific styling */
+            pre code.language-r {
+                color: #8e44ad;
+            }
+            /* Bash-specific styling */
+            pre code.language-bash {
+                color: #27ae60;
+            }
+            /* Terminal-specific styling for observations */
+            pre code.language-terminal {
+                background-color: #2d3748;
+                color: #e2e8f0;
+                font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+                font-size: 7pt;
+                line-height: 1.3;
+                border: 1px solid #4a5568;
+                border-radius: 3px;
+            }
+            pre.language-terminal {
+                background-color: #2d3748;
+                border-left: 3px solid #6c757d;
+                color: #e2e8f0;
+                border: 1px solid #4a5568;
+                border-radius: 3px;
+            }
+            /* Observation header styling */
+            h4.observation-header {
+                font-size: 9pt;
+                font-weight: normal;
+                color: #6c757d;
+                margin-top: 0.5em;
+                margin-bottom: 0.2em;
+                font-style: italic;
+            }
+            /* Solution-specific styling */
+            pre code.language-solution {
+                background-color: #e8f5e8;
+                color: #2d5016;
+                font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+                font-size: 8pt;
+                line-height: 1.4;
+                border: 1px solid #c3e6c3;
+                border-radius: 3px;
+            }
+            pre.language-solution {
+                background-color: #e8f5e8;
+                border-left: 3px solid #28a745;
+                color: #2d5016;
+                border: 1px solid #c3e6c3;
+                border-radius: 3px;
+            }
+            blockquote {
+                border-left: 3px solid #bdc3c7;
+                margin: 0.5em 0;
+                padding-left: 15px;
+                color: #7f8c8d;
+                font-size: 8pt;
+            }
+            table {
+                border-collapse: collapse;
+                width: 100%;
+                margin: 0.5em 0;
+                font-size: 8pt;
+            }
+            th, td {
+                border: 1px solid #bdc3c7;
+                padding: 4px 8px;
+                text-align: left;
+            }
+            th {
+                background-color: #ecf0f1;
+                font-weight: bold;
+            }
+            img {
+                max-width: 100%;
+                height: auto;
+                display: block;
+                margin: 5px auto;
+                border: 1px solid #ddd;
+                border-radius: 3px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            }
+            .image-container {
+                text-align: center;
+                margin: 10px 0;
+            }
+            .image-caption {
+                font-style: italic;
+                color: #666;
+                font-size: 8pt;
+                margin-top: 3px;
+            }
+            p {
+                margin: 0.3em 0;
+            }
+            """
+
+            # Create HTML document
+            html_doc = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>Biomni Conversation History</title>
+                <style>{css_content}</style>
+            </head>
+            <body>
+                {html_content}
+            </body>
+            </html>
+            """
+
+            # Convert to PDF
+            HTML(string=html_doc).write_pdf(pdf_path)
+
+        except ImportError:
+            # Fallback to markdown2pdf if weasyprint is not available
+            try:
+                from markdown2pdf import markdown2pdf
+
+                markdown2pdf(markdown_path, pdf_path)
+            except ImportError:
+                # Final fallback - try using pandoc if available
+                import subprocess
+
+                try:
+                    subprocess.run(["pandoc", markdown_path, "-o", pdf_path], check=True)
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    raise ImportError(
+                        "No PDF conversion library available. Please install weasyprint, markdown2pdf, or pandoc."
+                    )
+        except Exception as e:
+            raise Exception(f"PDF conversion failed: {e}")
+
+    def _clear_execution_plots(self):
+        """Clear execution plots before new execution."""
+        try:
+            from biomni.tool.support_tools import clear_captured_plots
+
+            clear_captured_plots()
+        except Exception as e:
+            print(f"Warning: Could not clear execution plots: {e}")
+
+    def _capture_matplotlib_plots(self):
+        """Capture any matplotlib plots that might have been generated during execution."""
+        # First try to get plots from execution storage
+        if hasattr(self, "_execution_plots") and self._execution_plots:
+            return self._execution_plots.copy()
+
+        # Fallback to the old method if no execution plots are available
+        try:
+            import matplotlib.pyplot as plt
+            import io
+            import base64
+
+            # Check if there are any active figures
+            if plt.get_fignums():
+                plots = []
+                for fig_num in plt.get_fignums():
+                    fig = plt.figure(fig_num)
+
+                    # Save figure to base64
+                    buffer = io.BytesIO()
+                    fig.savefig(buffer, format="png", dpi=150, bbox_inches="tight")
+                    buffer.seek(0)
+
+                    # Convert to base64
+                    image_data = base64.b64encode(buffer.getvalue()).decode("utf-8")
+                    plots.append(f"data:image/png;base64,{image_data}")
+
+                    # Close the figure to free memory
+                    plt.close(fig)
+
+                return plots
+        except ImportError:
+            # matplotlib not available
+            pass
+        except Exception as e:
+            print(f"Warning: Could not capture matplotlib plots: {e}")
+
+        return []
 
     def _generate_mcp_wrapper_from_biomni_schema(self, original_func, func_name, required_params, optional_params):
         """Generate wrapper function based on Biomni schema format."""

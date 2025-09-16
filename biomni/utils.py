@@ -684,7 +684,11 @@ class PromptLogger(BaseCallbackHandler):
 
 class NodeLogger(BaseCallbackHandler):
     def on_llm_end(self, response, **kwargs):  # response of type LLMResult
-        for generations in response.generations:  # response.generations of type List[List[Generations]] becuase "each input could have multiple candidate generations"
+        for (
+            generations
+        ) in (
+            response.generations
+        ):  # response.generations of type List[List[Generations]] becuase "each input could have multiple candidate generations"
             for generation in generations:
                 generated_text = generation.message.content
                 # token_usage = generation.message.response_metadata["token_usage"]
