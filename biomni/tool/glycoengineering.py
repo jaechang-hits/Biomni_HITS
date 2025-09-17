@@ -4,7 +4,6 @@ and curated links to external, specialized software referenced in issue #198.
 
 Functions return research-log style strings to match Biomni tool patterns.
 """
-from typing import List, Dict
 
 
 def find_n_glycosylation_motifs(sequence: str, allow_overlap: bool = False) -> str:
@@ -22,7 +21,7 @@ def find_n_glycosylation_motifs(sequence: str, allow_overlap: bool = False) -> s
     - Research log string summarizing motif locations and counts
     """
     seq = (sequence or "").upper()
-    results: List[Dict] = []
+    results: list[dict] = []
 
     i = 0
     while i <= len(seq) - 3:
@@ -74,7 +73,7 @@ def predict_o_glycosylation_hotspots(
     seq = (sequence or "").upper()
     half = window // 2
 
-    candidates: List[Dict] = []
+    candidates: list[dict] = []
     for i, aa in enumerate(seq):
         if aa not in {"S", "T"}:
             continue

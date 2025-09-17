@@ -1,8 +1,7 @@
-import os
+import importlib.util
 import re
 import types
 import unittest
-import importlib.util
 from pathlib import Path
 
 
@@ -67,7 +66,7 @@ class TestGlycoengineering(unittest.TestCase):
             if not m:
                 continue
             pos = int(m.group(1))
-            aa = m.group(2)
+            m.group(2)
             seq = "ASP ASTPA".replace(" ", "")
             if pos < len(seq) and seq[pos] == "P":
                 self.fail("Proline-followed S/T site should have been excluded: " + ln)
