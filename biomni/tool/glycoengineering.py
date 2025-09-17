@@ -85,12 +85,14 @@ def predict_o_glycosylation_hotspots(
         if disallow_proline_next and i + 1 < len(seq) and seq[i + 1] == "P":
             continue
         if frac >= min_st_fraction:
-            candidates.append({
-                "position": i + 1,
-                "residue": aa,
-                "st_fraction": round(frac, 3),
-                "window": f"{start+1}-{end}",
-            })
+            candidates.append(
+                {
+                    "position": i + 1,
+                    "residue": aa,
+                    "st_fraction": round(frac, 3),
+                    "window": f"{start + 1}-{end}",
+                }
+            )
 
     log = ["# Heuristic O-glycosylation hotspot prediction (S/T density based)"]
     log.append(f"Sequence length: {len(seq)} | window={window} | threshold={min_st_fraction}")
@@ -106,9 +108,7 @@ def predict_o_glycosylation_hotspots(
     else:
         log.append("No candidate O-glycosylation hotspots met the heuristic threshold.")
 
-    log.append(
-        "\nNote: For state-of-the-art O-glycosite prediction, use NetOGlyc 4.0 (web service)."
-    )
+    log.append("\nNote: For state-of-the-art O-glycosite prediction, use NetOGlyc 4.0 (web service).")
     return "\n".join(log)
 
 
@@ -144,4 +144,3 @@ def list_glycoengineering_resources() -> str:
     lines.append("- Many tools are heavy and best run via their own environments or containers.")
     lines.append("- For tight Biomni integration, consider adding MCP wrappers or CLI installers.")
     return "\n".join(lines)
-
