@@ -83,7 +83,7 @@ class A1:
 
         # Display configuration in a nice, readable format
         print("\n" + "=" * 50)
-        print("🔧 BIOMNI CONFIGURATION")
+        print("BIOMNI CONFIGURATION")
         print("=" * 50)
 
         # Get the actual LLM values that will be used by the agent
@@ -91,7 +91,7 @@ class A1:
         agent_source = source if source is not None else default_config.source
 
         # Show default config (database LLM)
-        print("📋 DEFAULT CONFIG (Including Database LLM):")
+        print("DEFAULT CONFIG (Including Database LLM):")
         config_dict = default_config.to_dict()
         for key, value in config_dict.items():
             if value is not None:
@@ -977,9 +977,9 @@ class A1:
                     name = tool.get("name", "Unknown")
                     desc = tool.get("description", "")
                     module = tool.get("module", "custom_tools")
-                    custom_tools_formatted.append(f"🔧 {name} (from {module}): {desc}")
+                    custom_tools_formatted.append(f"{name} (from {module}): {desc}")
                 else:
-                    custom_tools_formatted.append(f"🔧 {str(tool)}")
+                    custom_tools_formatted.append(f"{str(tool)}")
 
         custom_data_formatted = []
         if custom_data:
@@ -987,10 +987,10 @@ class A1:
                 if isinstance(item, dict):
                     name = item.get("name", "Unknown")
                     desc = item.get("description", "")
-                    custom_data_formatted.append(f"📊 {format_item_with_description(name, desc)}")
+                    custom_data_formatted.append(f"{format_item_with_description(name, desc)}")
                 else:
                     desc = self.data_lake_dict.get(item, f"Custom data: {item}")
-                    custom_data_formatted.append(f"📊 {format_item_with_description(item, desc)}")
+                    custom_data_formatted.append(f"{format_item_with_description(item, desc)}")
 
         custom_software_formatted = []
         if custom_software:
@@ -998,10 +998,10 @@ class A1:
                 if isinstance(item, dict):
                     name = item.get("name", "Unknown")
                     desc = item.get("description", "")
-                    custom_software_formatted.append(f"⚙️ {format_item_with_description(name, desc)}")
+                    custom_software_formatted.append(f"{format_item_with_description(name, desc)}")
                 else:
                     desc = self.library_content_dict.get(item, f"Custom software: {item}")
-                    custom_software_formatted.append(f"⚙️ {format_item_with_description(item, desc)}")
+                    custom_software_formatted.append(f"{format_item_with_description(item, desc)}")
 
         # Base prompt
         prompt_modifier = """
@@ -1087,7 +1087,7 @@ CUSTOM DATA (PRIORITIZE THESE DATASETS):
 
             if custom_software_formatted:
                 prompt_modifier += """
-⚙️ CUSTOM SOFTWARE (USE THESE LIBRARIES):
+CUSTOM SOFTWARE (USE THESE LIBRARIES):
 {custom_software}
 
 """
@@ -1751,6 +1751,82 @@ Each library is listed with its description to help you understand its functiona
         result = checker_llm.invoke({"messages": [("user", str(self.log))]}).dict()
         return result
 
+    def _parse_tool_calls_from_code(self, code: str) -> list[str]:
+        """Parse code to detect imported tools by looking for import statements.
+
+        Args:
+            code: The Python code to parse
+
+        Returns:
+            List of detected tool names
+        """
+        import re
+
+        detected_tools = set()
+
+        # Get all available tools from module2api
+        all_tools = {}
+        if hasattr(self, "module2api"):
+            for module_name, module_tools in self.module2api.items():
+                for tool in module_tools:
+                    if isinstance(tool, dict) and "name" in tool:
+                        tool_name = tool["name"]
+                        if tool_name not in all_tools:
+                            all_tools[tool_name] = []
+                        all_tools[tool_name].append(module_name)
+
+        # Add custom tools
+        if hasattr(self, "_custom_functions"):
+            for tool_name in self._custom_functions.keys():
+                if tool_name not in all_tools:
+                    all_tools[tool_name] = []
+                all_tools[tool_name].append("custom_tools")
+
+        # Look for import statements in the code
+        import_patterns = [
+            r"from\s+([\w.]+)\s+import\s+([\w,\s]+)",  # from module import tool1, tool2
+            r"import\s+([\w.]+)",  # import module
+        ]
+
+        for pattern in import_patterns:
+            matches = re.findall(pattern, code)
+            for match in matches:
+                if len(match) == 2:  # from module import tools
+                    module_name, tools_str = match
+                    # Split tools by comma and clean up
+                    tools = [tool.strip() for tool in tools_str.split(",")]
+
+                    for tool in tools:
+                        # Check if this tool exists in any module
+                        if tool in all_tools:
+                            detected_tools.add(tool)
+                        # Also check if it's a module.function pattern
+                        elif "." in tool:
+                            parts = tool.split(".")
+                            if len(parts) == 2:
+                                module_part, func_part = parts
+                                if func_part in all_tools:
+                                    detected_tools.add(func_part)
+
+                elif len(match) == 1:  # import module
+                    module_name = match[0]
+                    # Check if any tools from this module are used
+                    for tool_name, modules in all_tools.items():
+                        if any(module_name in mod for mod in modules):
+                            # Look for usage of this tool in the code
+                            if re.search(rf"\b{tool_name}\s*\(", code):
+                                detected_tools.add(tool_name)
+
+        # Also look for direct function calls without imports
+        function_call_pattern = r"(\w+)\s*\("
+        function_calls = re.findall(function_call_pattern, code)
+
+        for func_call in function_calls:
+            if func_call in all_tools:
+                detected_tools.add(func_call)
+
+        return sorted(list(detected_tools))
+
     def _inject_custom_functions_to_repl(self):
         """Inject custom functions into the Python REPL execution environment.
         This makes custom tools available during code execution.
@@ -1919,16 +1995,18 @@ Each library is listed with its description to help you understand its functiona
                 # Detect message type and add to markdown
                 if isinstance(message, HumanMessage):
                     if not first_human_shown:
-                        content += "#### 👤 Human\n\n"
+                        content += "#### Human\n\n"
                         content += f"{clean_output}\n\n"
                         first_human_shown = True
                     # Skip subsequent human messages
                 elif isinstance(message, AIMessage):
                     # Check if this is an observation message
                     if "observation" in clean_output.lower():
-                        content += '<h4 class="observation-header">📊 Observation</h4>\n\n'
                         formatted_observation = self._format_observation_as_terminal(clean_output)
-                        content += f"{formatted_observation}\n\n"
+                        # Only add observation if it's not empty or invalid
+                        if formatted_observation is not None:
+                            content += '<h4 class="observation-header">Observation</h4>\n\n'
+                            content += f"{formatted_observation}\n\n"
                     else:
                         step_number += 1
                         content += f"#### Step {step_number}\n\n"
@@ -1960,7 +2038,7 @@ Each library is listed with its description to help you understand its functiona
                                 if include_images and matching_execution.get("images"):
                                     for plot_data in matching_execution["images"]:
                                         if plot_data not in added_plots:
-                                            content += f"![Generated Plot]({plot_data})\n\n"
+                                            content += f"```plot\n{plot_data}\n```\n\n"
                                             added_plots.add(plot_data)
                         else:
                             # Process the AI message to extract and format execute tags
@@ -1969,12 +2047,8 @@ Each library is listed with its description to help you understand its functiona
                             formatted_content = self._format_lists_in_text(formatted_content)
                             content += f"{formatted_content}\n\n"
                 else:
-                    # For other message types, try to detect from content
-                    if "observation" in clean_output.lower():
-                        content += "#### 📊 Observation\n\n"
-                        formatted_observation = self._format_observation_as_terminal(clean_output)
-                        content += f"{formatted_observation}\n\n"
-                    else:
+                    # For other message types, only process if not already handled as observation
+                    if "observation" not in clean_output.lower():
                         content += f"{clean_output}\n\n"
         else:
             # Fall back to using self.log
@@ -1991,16 +2065,18 @@ Each library is listed with its description to help you understand its functiona
                 # Detect log entry type and add to markdown
                 if "Human Message" in clean_output:
                     if not first_human_shown:
-                        content += "#### 👤 Human\n\n"
+                        content += "#### Human\n\n"
                         content += f"{clean_output}\n\n"
                         first_human_shown = True
                     # Skip subsequent human messages
                 elif "Ai Message" in clean_output:
                     # Check if this is an observation message
                     if "observation" in clean_output.lower():
-                        content += '<h4 class="observation-header">📊 Observation</h4>\n\n'
                         formatted_observation = self._format_observation_as_terminal(clean_output)
-                        content += f"{formatted_observation}\n\n"
+                        # Only add observation if it's not empty or invalid
+                        if formatted_observation is not None:
+                            content += '<h4 class="observation-header">Observation</h4>\n\n'
+                            content += f"{formatted_observation}\n\n"
                     else:
                         step_number += 1
                         content += f"#### Step {step_number}\n\n"
@@ -2032,7 +2108,7 @@ Each library is listed with its description to help you understand its functiona
                                 if include_images and matching_execution.get("images"):
                                     for plot_data in matching_execution["images"]:
                                         if plot_data not in added_plots:
-                                            content += f"![Generated Plot]({plot_data})\n\n"
+                                            content += f"```plot\n{plot_data}\n```\n\n"
                                             added_plots.add(plot_data)
                         else:
                             # Process the AI message to extract and format execute tags
@@ -2040,21 +2116,21 @@ Each library is listed with its description to help you understand its functiona
                             # Format lists in the content
                             formatted_content = self._format_lists_in_text(formatted_content)
                             content += f"{formatted_content}\n\n"
-                elif "observation" in clean_output.lower():
-                    content += "#### 📊 Observation {.observation-header}\n\n"
-                    formatted_observation = self._format_observation_as_terminal(clean_output)
-                    content += f"{formatted_observation}\n\n"
+                else:
+                    # For other log entry types, only process if not already handled as observation
+                    if "observation" not in clean_output.lower():
+                        content += f"{clean_output}\n\n"
 
         return content
 
     def _format_execute_tags_in_content(self, content: str) -> str:
-        """Format execute tags in content by extracting code and formatting as proper code blocks.
+        """Format execute tags in content by extracting code and formatting as proper code blocks with tool call highlighting.
 
         Args:
             content: The content string that may contain <execute> tags
 
         Returns:
-            Formatted content with execute tags converted to code blocks
+            Formatted content with execute tags converted to highlighted tool call blocks
         """
         import re
 
@@ -2064,28 +2140,98 @@ Each library is listed with its description to help you understand its functiona
         def replace_execute_tag(match):
             code_content = match.group(1).strip()
 
-            # Detect the language based on markers
+            # Determine language and tool name based on markers
+            tool_name = "Python REPL"
+            language = "python"
+
             if (
                 code_content.startswith("#!R")
                 or code_content.startswith("# R code")
                 or code_content.startswith("# R script")
             ):
                 # R code
+                tool_name = "R REPL"
+                language = "r"
                 r_code = re.sub(r"^#!R|^# R code|^# R script", "", code_content, 1).strip()
-                return f"**Code:**\n```r\n{r_code}\n```"
+                code_content = r_code
             elif code_content.startswith("#!BASH") or code_content.startswith("# Bash script"):
                 # Bash script
+                tool_name = "Bash Script"
+                language = "bash"
                 bash_code = re.sub(r"^#!BASH|^# Bash script", "", code_content, 1).strip()
-                return f"**Code:**\n```bash\n{bash_code}\n```"
+                code_content = bash_code
             elif code_content.startswith("#!CLI"):
                 # CLI command
+                tool_name = "CLI Command"
+                language = "bash"
                 cli_code = re.sub(r"^#!CLI", "", code_content, 1).strip()
-                return f"**Code:**\n```bash\n{cli_code}\n```"
-            else:
-                # Default to Python
-                return f"**Code:**\n```python\n{code_content}\n```"
+                code_content = cli_code
 
-        # Replace all execute tags with formatted code blocks
+            # Parse tools from the code content
+            detected_tools = self._parse_tool_calls_from_code(code_content)
+
+            # Create the formatted block with code and tools used
+            formatted_block = f"""<div class="tool-call-highlight">
+<div class="tool-call-header">
+<strong>Code Execution</strong>
+</div>
+<div class="tool-call-input">
+<strong>Code:</strong>
+```{language}
+{code_content}
+```
+</div>"""
+
+            # Add tools used section
+            if detected_tools:
+                # Clean up tool names for display
+                unique_tools = set()
+                for tool in detected_tools:
+                    if tool == "python_repl":
+                        unique_tools.add("Python REPL")
+                    elif tool == "r_repl":
+                        unique_tools.add("R REPL")
+                    elif "bash" in tool.lower():
+                        unique_tools.add("Bash Script")
+                    else:
+                        unique_tools.add(tool)
+
+                if unique_tools:
+                    tools_list = ", ".join(sorted(unique_tools))
+                    formatted_block += f"""
+<div class="tools-used">
+<strong>Tools Used:</strong> {tools_list}
+</div>"""
+            else:
+                # For R, Bash, and CLI, add the appropriate tool name
+                if language == "r":
+                    formatted_block += f"""
+<div class="tools-used">
+<strong>Tools Used:</strong> R REPL
+</div>"""
+                elif language == "bash":
+                    if tool_name == "CLI Command":
+                        formatted_block += f"""
+<div class="tools-used">
+<strong>Tools Used:</strong> CLI Command
+</div>"""
+                    else:
+                        formatted_block += f"""
+<div class="tools-used">
+<strong>Tools Used:</strong> Bash Script
+</div>"""
+                else:
+                    # Python with no detected tools
+                    formatted_block += f"""
+<div class="tools-used">
+<strong>Tools Used:</strong> Python REPL
+</div>"""
+
+            formatted_block += "</div>"
+
+            return formatted_block
+
+        # Replace all execute tags with formatted tool call blocks
         formatted_content = re.sub(execute_pattern, replace_execute_tag, content, flags=re.DOTALL)
 
         # Also format solution tags
@@ -2109,21 +2255,21 @@ Each library is listed with its description to help you understand its functiona
 
         def replace_solution_tag(match):
             solution_content = match.group(1).strip()
-            return f"#### 📋 Summary and Solution\n\n```solution\n{solution_content}\n```"
+            return f"#### Summary and Solution\n\n```solution\n{solution_content}\n```"
 
         # Replace all solution tags with formatted solution blocks
         formatted_content = re.sub(solution_pattern, replace_solution_tag, content, flags=re.DOTALL)
 
         return formatted_content
 
-    def _format_observation_as_terminal(self, content: str) -> str:
+    def _format_observation_as_terminal(self, content: str) -> str | None:
         """Format observation content with terminal-like styling.
 
         Args:
             content: The observation content string
 
         Returns:
-            Formatted content with terminal styling
+            Formatted content with terminal styling, or None if observation is empty/invalid
         """
         import re
 
@@ -2134,16 +2280,27 @@ Each library is listed with its description to help you understand its functiona
         if observation_match:
             observation_content = observation_match.group(1).strip()
 
+            # Skip empty observations
+            if not observation_content:
+                return None
+
+            # Check for parsing errors or empty content
+            if observation_content in ["", "None", "null", "undefined"]:
+                return None
+
             # Check if it contains plot data (base64 images)
             if "data:image/" in observation_content:
-                # This is likely a plot output, return as is
-                return observation_content
+                # Format plot in its own styled box
+                return f"```plot\n{observation_content}\n```"
             else:
                 # Regular text output - format as terminal output
                 return f"```terminal\n{observation_content}\n```"
         else:
-            # Fallback if no observation tags found
-            return f"```terminal\n{content}\n```"
+            # Fallback if no observation tags found - check if content is meaningful
+            if content.strip() and content.strip() not in ["", "None", "null", "undefined"]:
+                return f"```terminal\n{content}\n```"
+            else:
+                return None
 
     def _format_lists_in_text(self, text: str) -> str:
         """Format numbered lists and bullet points in text to proper markdown format."""
@@ -2210,7 +2367,7 @@ Each library is listed with its description to help you understand its functiona
             # Add CSS styling
             css_content = """
             body {
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', 'Twemoji', 'EmojiOne Color', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                 font-size: 9pt;
                 line-height: 1.4;
                 max-width: 800px;
@@ -2219,6 +2376,7 @@ Each library is listed with its description to help you understand its functiona
                 color: #333;
             }
             h1, h2, h3, h4, h5, h6 {
+                font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', 'Twemoji', 'EmojiOne Color', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                 color: #2c3e50;
                 margin-top: 1em;
                 margin-bottom: 0.5em;
@@ -2334,6 +2492,32 @@ Each library is listed with its description to help you understand its functiona
                 border: 1px solid #4caf50;
                 border-radius: 3px;
             }
+            /* Plot-specific styling */
+            pre code.language-plot {
+                background-color: #fff3e0;
+                color: #e65100;
+                font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+                font-size: 8pt;
+                line-height: 1.4;
+                border: 1px solid #ff9800;
+                border-radius: 3px;
+                text-align: center;
+            }
+            pre.language-plot {
+                background-color: #fff3e0;
+                border-left: 3px solid #ff9800;
+                color: #e65100;
+                border: 1px solid #ff9800;
+                border-radius: 3px;
+                text-align: center;
+                padding: 15px;
+            }
+            pre.language-plot img {
+                max-width: 100%;
+                height: auto;
+                border-radius: 3px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
             blockquote {
                 border-left: 3px solid #bdc3c7;
                 margin: 0.5em 0;
@@ -2376,7 +2560,75 @@ Each library is listed with its description to help you understand its functiona
                 margin-top: 3px;
             }
             p {
+                font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', 'Twemoji', 'EmojiOne Color', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                 margin: 0.3em 0;
+            }
+            /* Tool call highlighting - matching observation and code formatting */
+            .tool-call-highlight {
+                background-color: #f8f9fa;
+                border: 1px solid #e9ecef;
+                border-radius: 3px;
+                padding: 0;
+                margin: 10px 0;
+                overflow: hidden;
+            }
+            .tool-call-header {
+                background-color: #e9ecef;
+                color: #495057;
+                padding: 8px 12px;
+                margin: 0;
+                font-weight: normal;
+                font-size: 9pt;
+                font-style: italic;
+                border-bottom: 1px solid #dee2e6;
+            }
+            .tool-call-input {
+                background-color: #f8f9fa;
+                border: none;
+                border-radius: 0;
+                padding: 0;
+                margin: 0;
+                font-size: 8pt;
+                line-height: 1.4;
+            }
+            .tool-call-input strong {
+                color: #495057;
+                font-weight: normal;
+                font-size: 8pt;
+                font-style: italic;
+            }
+            .tool-call-input pre {
+                background-color: #f8f9fa;
+                border: 1px solid #e9ecef;
+                border-radius: 3px;
+                padding: 10px;
+                margin: 0;
+                font-size: 8pt;
+                line-height: 1.4;
+                overflow-x: auto;
+                white-space: pre-wrap;
+                word-wrap: break-word;
+            }
+            .tool-call-input code {
+                background-color: transparent;
+                padding: 0;
+                border-radius: 0;
+                font-size: 8pt;
+                color: #2c3e50;
+            }
+            .tools-used {
+                background-color: #e8f4fd;
+                border-top: 1px solid #dee2e6;
+                padding: 8px 12px;
+                margin: 0;
+                font-size: 8pt;
+                color: #495057;
+            }
+            .tools-used strong {
+                color: #495057;
+                font-weight: normal;
+                font-size: 8pt;
+                font-style: italic;
             }
             """
 
