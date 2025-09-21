@@ -1952,6 +1952,8 @@ Each library is listed with its description to help you understand its functiona
                             if matching_execution:
                                 # Process the AI message to extract and format execute tags
                                 formatted_content = self._format_execute_tags_in_content(clean_output)
+                                # Format lists in the content
+                                formatted_content = self._format_lists_in_text(formatted_content)
                                 content += f"{formatted_content}\n\n"
 
                                 # Add any plots that were generated during this execution
@@ -1960,13 +1962,11 @@ Each library is listed with its description to help you understand its functiona
                                         if plot_data not in added_plots:
                                             content += f"![Generated Plot]({plot_data})\n\n"
                                             added_plots.add(plot_data)
-                            else:
-                                # Process the AI message to extract and format execute tags
-                                formatted_content = self._format_execute_tags_in_content(clean_output)
-                                content += f"{formatted_content}\n\n"
                         else:
                             # Process the AI message to extract and format execute tags
                             formatted_content = self._format_execute_tags_in_content(clean_output)
+                            # Format lists in the content
+                            formatted_content = self._format_lists_in_text(formatted_content)
                             content += f"{formatted_content}\n\n"
                 else:
                     # For other message types, try to detect from content
@@ -2024,6 +2024,8 @@ Each library is listed with its description to help you understand its functiona
                             if matching_execution:
                                 # Process the AI message to extract and format execute tags
                                 formatted_content = self._format_execute_tags_in_content(clean_output)
+                                # Format lists in the content
+                                formatted_content = self._format_lists_in_text(formatted_content)
                                 content += f"{formatted_content}\n\n"
 
                                 # Add any plots that were generated during this execution
@@ -2032,13 +2034,11 @@ Each library is listed with its description to help you understand its functiona
                                         if plot_data not in added_plots:
                                             content += f"![Generated Plot]({plot_data})\n\n"
                                             added_plots.add(plot_data)
-                            else:
-                                # Process the AI message to extract and format execute tags
-                                formatted_content = self._format_execute_tags_in_content(clean_output)
-                                content += f"{formatted_content}\n\n"
                         else:
                             # Process the AI message to extract and format execute tags
                             formatted_content = self._format_execute_tags_in_content(clean_output)
+                            # Format lists in the content
+                            formatted_content = self._format_lists_in_text(formatted_content)
                             content += f"{formatted_content}\n\n"
                 elif "observation" in clean_output.lower():
                     content += "#### 📊 Observation {.observation-header}\n\n"
@@ -2072,18 +2072,18 @@ Each library is listed with its description to help you understand its functiona
             ):
                 # R code
                 r_code = re.sub(r"^#!R|^# R code|^# R script", "", code_content, 1).strip()
-                return f"```r\n{r_code}\n```"
+                return f"**Code:**\n```r\n{r_code}\n```"
             elif code_content.startswith("#!BASH") or code_content.startswith("# Bash script"):
                 # Bash script
                 bash_code = re.sub(r"^#!BASH|^# Bash script", "", code_content, 1).strip()
-                return f"```bash\n{bash_code}\n```"
+                return f"**Code:**\n```bash\n{bash_code}\n```"
             elif code_content.startswith("#!CLI"):
                 # CLI command
                 cli_code = re.sub(r"^#!CLI", "", code_content, 1).strip()
-                return f"```bash\n{cli_code}\n```"
+                return f"**Code:**\n```bash\n{cli_code}\n```"
             else:
                 # Default to Python
-                return f"```python\n{code_content}\n```"
+                return f"**Code:**\n```python\n{code_content}\n```"
 
         # Replace all execute tags with formatted code blocks
         formatted_content = re.sub(execute_pattern, replace_execute_tag, content, flags=re.DOTALL)
@@ -2109,7 +2109,7 @@ Each library is listed with its description to help you understand its functiona
 
         def replace_solution_tag(match):
             solution_content = match.group(1).strip()
-            return f"```solution\n{solution_content}\n```"
+            return f"#### 📋 Summary and Solution\n\n```solution\n{solution_content}\n```"
 
         # Replace all solution tags with formatted solution blocks
         formatted_content = re.sub(solution_pattern, replace_solution_tag, content, flags=re.DOTALL)
@@ -2163,14 +2163,14 @@ Each library is listed with its description to help you understand its functiona
             if re.match(r"^\d+\.\s*\[[ ✓✗]\]", line):
                 # Extract the content after the checkbox
                 content = re.sub(r"^\d+\.\s*\[[ ✓✗]\]\s*", "", line)
-                
-                # Replace checkbox symbols with emojis
+
+                # Replace checkbox symbols with text format
                 if "[✓]" in line:
-                    formatted_lines.append(f"- ✅ {content}")
+                    formatted_lines.append(f"- [x] {content}")
                 elif "[✗]" in line:
-                    formatted_lines.append(f"- ❌ {content}")
+                    formatted_lines.append(f"- [ ] {content}")
                 else:
-                    formatted_lines.append(f"- ⬜ {content}")
+                    formatted_lines.append(f"- [ ] {content}")
             # Check for regular numbered lists - convert to bullet points
             elif re.match(r"^\d+\.\s+", line):
                 # This is a numbered list item - convert to bullet point
@@ -2286,19 +2286,19 @@ Each library is listed with its description to help you understand its functiona
             }
             /* Terminal-specific styling for observations */
             pre code.language-terminal {
-                background-color: #2d3748;
-                color: #e2e8f0;
+                background-color: #ffeaea;
+                color: #d32f2f;
                 font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
                 font-size: 7pt;
                 line-height: 1.3;
-                border: 1px solid #4a5568;
+                border: 1px solid #ffcdd2;
                 border-radius: 3px;
             }
             pre.language-terminal {
-                background-color: #2d3748;
-                border-left: 3px solid #6c757d;
-                color: #e2e8f0;
-                border: 1px solid #4a5568;
+                background-color: #ffeaea;
+                border-left: 3px solid #f44336;
+                color: #d32f2f;
+                border: 1px solid #ffcdd2;
                 border-radius: 3px;
             }
             /* Observation header styling */
@@ -2310,21 +2310,28 @@ Each library is listed with its description to help you understand its functiona
                 margin-bottom: 0.2em;
                 font-style: italic;
             }
+            /* Code header styling */
+            strong {
+                font-size: 9pt;
+                font-weight: normal;
+                color: #6c757d;
+                font-style: italic;
+            }
             /* Solution-specific styling */
             pre code.language-solution {
                 background-color: #e8f5e8;
-                color: #2d5016;
+                color: #1b5e20;
                 font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
                 font-size: 8pt;
                 line-height: 1.4;
-                border: 1px solid #c3e6c3;
+                border: 1px solid #4caf50;
                 border-radius: 3px;
             }
             pre.language-solution {
                 background-color: #e8f5e8;
-                border-left: 3px solid #28a745;
-                color: #2d5016;
-                border: 1px solid #c3e6c3;
+                border-left: 3px solid #4caf50;
+                color: #1b5e20;
+                border: 1px solid #4caf50;
                 border-radius: 3px;
             }
             blockquote {
