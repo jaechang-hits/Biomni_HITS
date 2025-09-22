@@ -1016,3 +1016,1043 @@ def check_and_download_s3_files(
             download_results[filename] = False
 
     return download_results
+
+
+def clean_message_content(content: str) -> str:
+    """Clean message content by removing ANSI codes."""
+    import re
+
+    return re.sub(r"\x1b\[[0-9;]*m", "", content)
+
+
+def should_skip_message(clean_output: str) -> bool:
+    """Check if message should be skipped."""
+    return (
+        clean_output.strip() in ["", "None", "null", "undefined"]
+        or "There are no tags" in clean_output
+        or "Execution terminated due to repeated parsing errors" in clean_output
+    )
+
+
+def has_execution_results(clean_output: str, execution_results) -> bool:
+    """Check if message has execution results."""
+    return "<execute>" in clean_output and execution_results is not None and execution_results
+
+
+def find_matching_execution(clean_output: str, execution_results) -> dict | None:
+    """Find matching execution result."""
+    for exec_result in execution_results:
+        if exec_result["triggering_message"] in clean_output or clean_output in exec_result["triggering_message"]:
+            return exec_result
+    return None
+
+
+def create_parsing_error_html() -> str:
+    """Create HTML for parsing error display."""
+    return """
+<div class="parsing-error-box">
+    <div class="parsing-error-header">Parsing Error</div>
+    <div class="parsing-error-content">Each response must include thinking process followed by either <execute> or <solution> tag. But there are no tags in the current response.</div>
+</div>
+"""
+
+
+# ============================================================================
+# TOOL PARSING UTILITIES
+# ============================================================================
+
+
+def parse_tool_calls_from_code(code: str, module2api: dict, custom_functions: dict = None) -> list[str]:
+    """Parse code to detect imported tools by looking for import statements.
+
+    Args:
+        code: The Python code to parse
+        module2api: Dictionary mapping modules to their API tools
+        custom_functions: Dictionary of custom functions
+
+    Returns:
+        List of detected tool names
+    """
+    tool_module_pairs = parse_tool_calls_with_modules(code, module2api, custom_functions)
+    return sorted(list(set(pair[0] for pair in tool_module_pairs)))
+
+
+def parse_tool_calls_with_modules(code: str, module2api: dict, custom_functions: dict = None) -> list[tuple[str, str]]:
+    """Parse code to detect imported tools and their modules.
+
+    Args:
+        code: The Python code to parse
+        module2api: Dictionary mapping modules to their API tools
+        custom_functions: Dictionary of custom functions
+
+    Returns:
+        List of tuples (tool_name, module_name)
+    """
+    import re
+
+    detected_tools = set()
+
+    # Get all available tools from module2api
+    all_tools = {}
+    for module_name, module_tools in module2api.items():
+        for tool in module_tools:
+            if isinstance(tool, dict) and "name" in tool:
+                tool_name = tool["name"]
+                if tool_name not in all_tools:
+                    all_tools[tool_name] = []
+                all_tools[tool_name].append(module_name)
+
+    # Add custom tools
+    if custom_functions:
+        for tool_name in custom_functions.keys():
+            if tool_name not in all_tools:
+                all_tools[tool_name] = []
+            all_tools[tool_name].append("custom_tools")
+
+    # Look for import statements in the code
+    import_patterns = [
+        r"from\s+([\w.]+)\s+import\s+([\w,\s]+)",  # from module import tool1, tool2
+        r"import\s+([\w.]+)",  # import module
+    ]
+
+    for pattern in import_patterns:
+        matches = re.findall(pattern, code)
+        for match in matches:
+            if len(match) == 2:  # from module import tools
+                module_name, tools_str = match
+                # Split tools by comma and clean up
+                tools = [tool.strip() for tool in tools_str.split(",")]
+
+                for tool in tools:
+                    # Check if this tool exists in any module
+                    if tool in all_tools:
+                        # Find the best matching module
+                        best_module = find_best_module_match(module_name, all_tools[tool])
+                        detected_tools.add((tool, best_module))
+                    # Also check if it's a module.function pattern
+                    elif "." in tool:
+                        parts = tool.split(".")
+                        if len(parts) == 2:
+                            module_part, func_part = parts
+                            if func_part in all_tools:
+                                best_module = find_best_module_match(module_part, all_tools[func_part])
+                                detected_tools.add((func_part, best_module))
+
+            elif len(match) == 1:  # import module
+                module_name = match[0]
+                # Check if any tools from this module are used
+                for tool_name, modules in all_tools.items():
+                    if any(module_name in mod for mod in modules):
+                        # Look for usage of this tool in the code
+                        if re.search(rf"\b{tool_name}\s*\(", code):
+                            best_module = find_best_module_match(module_name, modules)
+                            detected_tools.add((tool_name, best_module))
+
+    # Also look for direct function calls without imports
+    function_call_pattern = r"(\w+)\s*\("
+    function_calls = re.findall(function_call_pattern, code)
+
+    for func_call in function_calls:
+        if func_call in all_tools:
+            # For direct calls, use the first available module
+            best_module = all_tools[func_call][0]
+            detected_tools.add((func_call, best_module))
+
+    return sorted(list(detected_tools))
+
+
+def find_best_module_match(target_module: str, available_modules: list[str]) -> str:
+    """Find the best matching module from available modules.
+
+    Args:
+        target_module: The module name we're looking for
+        available_modules: List of available module names
+
+    Returns:
+        The best matching module name
+    """
+    # First try exact match
+    if target_module in available_modules:
+        return target_module
+
+    # Try partial matches
+    for module in available_modules:
+        if target_module in module or module in target_module:
+            return module
+
+    # Return the first available module as fallback
+    return available_modules[0] if available_modules else "unknown"
+
+
+def inject_custom_functions_to_repl(custom_functions: dict):
+    """Inject custom functions into the Python REPL execution environment.
+    This makes custom tools available during code execution.
+    """
+    if custom_functions:
+        # Access the persistent namespace used by run_python_repl
+        from biomni.tool.support_tools import _persistent_namespace
+
+        # Inject all custom functions into the execution namespace
+        for name, func in custom_functions.items():
+            _persistent_namespace[name] = func
+
+        # Also make them available in builtins for broader access
+        import builtins
+
+        if not hasattr(builtins, "_biomni_custom_functions"):
+            builtins._biomni_custom_functions = {}
+        builtins._biomni_custom_functions.update(custom_functions)
+
+
+def format_execute_tags_in_content(content: str, parse_tool_calls_with_modules_func) -> str:
+    """Format execute tags in content by extracting code and formatting as proper code blocks with tool call highlighting.
+
+    Args:
+        content: The content string that may contain <execute> tags
+        parse_tool_calls_with_modules_func: Function to parse tool calls with modules
+
+    Returns:
+        Formatted content with execute tags converted to highlighted tool call blocks
+    """
+    import re
+
+    # Pattern to match <execute>...</execute> blocks
+    execute_pattern = r"<execute>(.*?)</execute>"
+
+    def replace_execute_tag(match):
+        code_content = match.group(1).strip()
+        language, tool_name = detect_code_language_and_tool(code_content)
+        code_content = clean_code_content(code_content, language)
+
+        # Parse tools from the code content with module information
+        detected_tool_modules = parse_tool_calls_with_modules_func(code_content)
+
+        # Create the formatted block
+        formatted_block = create_tool_call_block(code_content, language, tool_name, detected_tool_modules)
+        return formatted_block
+
+    # Replace all execute tags with formatted tool call blocks
+    formatted_content = re.sub(execute_pattern, replace_execute_tag, content, flags=re.DOTALL)
+
+    # Also format solution tags
+    formatted_content = format_solution_tags_in_content(formatted_content)
+
+    return formatted_content
+
+
+def detect_code_language_and_tool(code_content: str) -> tuple[str, str]:
+    """Detect the programming language and tool name from code content."""
+    if code_content.startswith("#!R") or code_content.startswith("# R code") or code_content.startswith("# R script"):
+        return "r", "R REPL"
+    elif code_content.startswith("#!BASH") or code_content.startswith("# Bash script"):
+        return "bash", "Bash Script"
+    elif code_content.startswith("#!CLI"):
+        return "bash", "CLI Command"
+    else:
+        return "python", "Python REPL"
+
+
+def clean_code_content(code_content: str, language: str) -> str:
+    """Clean code content by removing language markers."""
+    import re
+
+    if language == "r":
+        return re.sub(r"^#!R|^# R code|^# R script", "", code_content, 1).strip()
+    elif language == "bash":
+        if code_content.startswith("#!BASH") or code_content.startswith("# Bash script"):
+            return re.sub(r"^#!BASH|^# Bash script", "", code_content, 1).strip()
+        elif code_content.startswith("#!CLI"):
+            return re.sub(r"^#!CLI", "", code_content, 1).strip()
+    return code_content
+
+
+def create_tool_call_block(code_content: str, language: str, tool_name: str, detected_tool_modules: list) -> str:
+    """Create the HTML block for tool call highlighting."""
+    # Create the formatted block with code and tools used
+    formatted_block = f"""<div class="tool-call-highlight">
+<div class="tool-call-header">
+<strong>Code Execution</strong>
+</div>
+<div class="tool-call-input">
+```{language}
+{code_content}
+```
+</div>"""
+
+    # Add tools used section
+    if detected_tool_modules:
+        tools_list = format_detected_tools(detected_tool_modules)
+        formatted_block += f"""
+<div class="tools-used">
+<strong>Tools Used:</strong> {tools_list}
+</div>"""
+    else:
+        formatted_block += format_default_tool_name(language, tool_name)
+
+    formatted_block += "</div>"
+    return formatted_block
+
+
+def format_detected_tools(detected_tool_modules: list) -> str:
+    """Format detected tools with their modules."""
+    tool_descriptions = []
+    for tool_name, module_name in detected_tool_modules:
+        if tool_name == "python_repl":
+            tool_descriptions.append("Python REPL")
+        elif tool_name == "r_repl":
+            tool_descriptions.append("R REPL")
+        elif "bash" in tool_name.lower():
+            tool_descriptions.append("Bash Script")
+        else:
+            # Extract the last part of the module name for display
+            display_module = module_name.split(".")[-1] if "." in module_name else module_name
+            tool_descriptions.append(f"{display_module} → {tool_name}")
+
+    return ", ".join(sorted(tool_descriptions))
+
+
+def format_default_tool_name(language: str, tool_name: str) -> str:
+    """Format default tool name based on language."""
+    if language == "r":
+        return f"""
+<div class="tools-used">
+<strong>Tools Used:</strong> R REPL
+</div>"""
+    elif language == "bash":
+        if tool_name == "CLI Command":
+            return f"""
+<div class="tools-used">
+<strong>Tools Used:</strong> CLI Command
+</div>"""
+        else:
+            return f"""
+<div class="tools-used">
+<strong>Tools Used:</strong> Bash Script
+</div>"""
+    else:
+        return f"""
+<div class="tools-used">
+<strong>Tools Used:</strong> Python REPL
+</div>"""
+
+
+def format_solution_tags_in_content(content: str) -> str:
+    """Format solution tags in content by extracting text and formatting as solution blocks.
+
+    Args:
+        content: The content string that may contain <solution> tags
+
+    Returns:
+        Formatted content with solution tags converted to solution blocks
+    """
+    import re
+
+    # Pattern to match <solution>...</solution> blocks
+    solution_pattern = r"<solution>(.*?)</solution>"
+
+    def replace_solution_tag(match):
+        solution_content = match.group(1).strip()
+        # Format as regular text, not terminal
+        return f"""<div class="title-text summary">
+<div class="title-text-header">
+<strong>Summary and Solution</strong>
+</div>
+<div class="title-text-content">
+{solution_content}
+</div>
+</div>"""
+
+    # Replace all solution tags with formatted solution blocks
+    formatted_content = re.sub(solution_pattern, replace_solution_tag, content, flags=re.DOTALL)
+
+    return formatted_content
+
+
+def format_observation_as_terminal(content: str) -> str | None:
+    """Format observation content with terminal-like styling.
+
+    Args:
+        content: The observation content string
+
+    Returns:
+        Formatted content with terminal styling, or None if observation is empty/invalid
+    """
+    import re
+
+    # Character limit for 2 A4 pages (approximately 10,000 characters)
+    MAX_OBSERVATION_LENGTH = 10000
+
+    # Remove the <observation> tags and extract the content
+    observation_pattern = r"<observation>(.*?)</observation>"
+    observation_match = re.search(observation_pattern, content, re.DOTALL)
+
+    if observation_match:
+        observation_content = observation_match.group(1).strip()
+    else:
+        # Fallback if no observation tags found - check if content is meaningful
+        if not (content.strip() and content.strip() not in ["", "None", "null", "undefined"]):
+            return None
+        observation_content = content.strip()
+
+    # Skip empty observations
+    if not observation_content or observation_content in ["", "None", "null", "undefined"]:
+        return None
+
+    # Check if observation is too long for 2 pages
+    if len(observation_content) > MAX_OBSERVATION_LENGTH:
+        cropped_content = observation_content[:MAX_OBSERVATION_LENGTH]
+        truncation_notice = f"\n\n[Output truncated - content was too long to display here ({len(observation_content)} characters total)]"
+        observation_content = cropped_content + truncation_notice
+
+    # Check if it contains plot data (base64 images)
+    if "data:image/" in observation_content:
+        content_html = process_observation_with_images(observation_content)
+    else:
+        # Regular text output - format as terminal output
+        content_html = f"```terminal\n{observation_content}\n```"
+
+    return f"""<div class="title-text observation">
+<div class="title-text-header">
+<strong>Observation</strong>
+</div>
+<div class="title-text-content">
+{content_html}
+</div>
+</div>"""
+
+
+def process_observation_with_images(observation_content: str) -> str:
+    """Process observation content that contains images."""
+    # Split content into text and image parts
+    parts = observation_content.split("data:image/")
+    text_parts = []
+    image_parts = []
+
+    for i, part in enumerate(parts):
+        if i == 0:
+            # First part is text only
+            if part.strip():
+                text_parts.append(part.strip())
+        else:
+            # Find the end of the base64 data
+            end_markers = ["\n", "\r", " ", "\t", ">", "<", "]", ")", "}"]
+            image_end = len(part)
+            for marker in end_markers:
+                marker_pos = part.find(marker)
+                if marker_pos != -1 and marker_pos < image_end:
+                    image_end = marker_pos
+
+            # Extract image data
+            image_data = "data:image/" + part[:image_end]
+            image_parts.append(image_data)
+
+            # Extract remaining text
+            remaining_text = part[image_end:].strip()
+            if remaining_text:
+                text_parts.append(remaining_text)
+
+    # Build the content
+    content_html = ""
+    if text_parts:
+        # Add text content as terminal output
+        text_content = "\n".join(text_parts)
+        content_html += f"```terminal\n{text_content}\n```\n\n"
+
+    if image_parts:
+        # Add image content
+        for image_data in image_parts:
+            content_html += f"![Plot]({image_data})\n\n"
+
+    return content_html
+
+
+def format_lists_in_text(text: str) -> str:
+    """Format numbered lists and bullet points in text to proper markdown format."""
+    import re
+
+    lines = text.split("\n")
+    list_blocks = identify_list_blocks(lines)
+
+    # Process each block
+    result_blocks = []
+    for block_text, is_checkbox_list in list_blocks:
+        if is_checkbox_list:
+            result_blocks.append(format_single_list(block_text))
+        else:
+            result_blocks.append(block_text)
+
+    return "\n".join(result_blocks)
+
+
+def identify_list_blocks(lines: list) -> list[tuple[str, bool]]:
+    """Identify blocks of text that contain lists."""
+    import re
+
+    list_blocks = []
+    current_block = []
+    in_checkbox_sequence = False
+
+    for line in lines:
+        line_stripped = line.strip()
+
+        # Check if this line starts a numbered item with checkbox
+        if re.match(r"^\d+\.\s*\[[ ✓✗]\]", line_stripped):
+            if not in_checkbox_sequence:
+                # Start of a new checkbox sequence
+                if current_block:
+                    list_blocks.append(("\n".join(current_block), False))
+                current_block = [line]
+                in_checkbox_sequence = True
+            else:
+                # Continue the sequence
+                current_block.append(line)
+        else:
+            if in_checkbox_sequence:
+                # End of checkbox sequence
+                if current_block:
+                    list_blocks.append(("\n".join(current_block), True))
+                current_block = []
+                in_checkbox_sequence = False
+            current_block.append(line)
+
+    # Handle the last block
+    if current_block:
+        if in_checkbox_sequence:
+            list_blocks.append(("\n".join(current_block), True))
+        else:
+            list_blocks.append(("\n".join(current_block), False))
+
+    return list_blocks
+
+
+def format_single_list(text: str) -> str:
+    """Format a single list block."""
+    import re
+
+    lines = text.split("\n")
+    list_items = []
+    has_list_items = False
+    plan_title = "Plan"  # Default title
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        # Check for plan title patterns
+        if re.match(r"^(Plan|Updated Plan|Completed Plan)$", line, re.IGNORECASE):
+            plan_title = line
+            continue
+
+        # Check for numbered lists with checkboxes (1. [ ] or 1. [✓] or 1. [✗])
+        if re.match(r"^\d+\.\s*\[[ ✓✗]\]", line):
+            has_list_items = True
+            # Extract the content after the checkbox
+            content = re.sub(r"^\d+\.\s*\[[ ✓✗]\]\s*", "", line)
+
+            # Replace checkbox symbols with text format
+            if "[✓]" in line:
+                list_items.append(f"<li><strong>[x]</strong> {content}</li>")
+            elif "[✗]" in line:
+                list_items.append(f"<li><strong>[ ]</strong> {content}</li>")
+            else:
+                list_items.append(f"<li><strong>[ ]</strong> {content}</li>")
+        else:
+            # Regular text - add as is (don't convert to list items)
+            list_items.append(line)
+
+    if has_list_items and list_items:
+        # This is a list - return with container div and styled title
+        return f"""<div class="title-text plan">
+<div class="title-text-header">
+<strong class="plan-title">{plan_title}</strong>
+</div>
+<div class="title-text-content">
+<ul>
+{chr(10).join(list_items)}
+</ul>
+</div>
+</div>"""
+    else:
+        # Regular text
+        return "\n".join(list_items)
+
+
+def convert_markdown_to_pdf(markdown_path: str, pdf_path: str) -> None:
+    """Convert markdown file to PDF using weasyprint or markdown2pdf."""
+    try:
+        # Try weasyprint first (better for complex layouts)
+        import weasyprint
+        from weasyprint import HTML, CSS
+        from weasyprint.text.fonts import FontConfiguration
+        import base64
+        import re
+        import os
+        from datetime import datetime
+
+        # Read markdown content
+        with open(markdown_path, "r", encoding="utf-8") as f:
+            markdown_content = f.read()
+
+        # Convert markdown to HTML with minimal extensions for better performance
+        import markdown
+
+        # Use minimal extensions to improve performance
+        html_content = markdown.markdown(
+            markdown_content,
+            extensions=["fenced_code"],  # Removed codehilite for better performance
+        )
+
+        # Add CSS styling
+        css_content = get_pdf_css_content()
+
+        # Create HTML document
+        html_doc = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>Biomni Conversation History</title>
+            <style>{css_content}</style>
+        </head>
+        <body>
+            {html_content}
+        </body>
+        </html>
+        """
+
+        # Convert to PDF with performance optimizations
+        font_config = FontConfiguration()
+        html_obj = HTML(string=html_doc)
+        html_obj.write_pdf(pdf_path, font_config=font_config, optimize_images=True)
+
+    except ImportError:
+        # Fallback to markdown2pdf if weasyprint is not available
+        try:
+            from markdown2pdf import markdown2pdf
+
+            markdown2pdf(markdown_path, pdf_path)
+        except ImportError:
+            # Final fallback - try using pandoc if available
+            import subprocess
+
+            try:
+                subprocess.run(["pandoc", markdown_path, "-o", pdf_path], check=True)
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                raise ImportError(
+                    "No PDF conversion library available. Please install weasyprint, markdown2pdf, or pandoc."
+                )
+    except Exception as e:
+        raise Exception(f"PDF conversion failed: {e}")
+
+
+def get_pdf_css_content() -> str:
+    """Get the CSS content for PDF generation."""
+    return """
+    body {
+        font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', 'Twemoji', 'EmojiOne Color', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 9pt;
+        line-height: 1.4;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 15px;
+        color: #333;
+    }
+    h1, h2, h3, h4, h5, h6 {
+        font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', 'Twemoji', 'EmojiOne Color', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        color: #2c3e50;
+        margin-top: 1em;
+        margin-bottom: 0.5em;
+    }
+    h1 {
+        border-bottom: 2px solid #3498db;
+        padding-bottom: 8px;
+        font-size: 16pt;
+    }
+    h2 {
+        border-bottom: 1px solid #bdc3c7;
+        padding-bottom: 3px;
+        font-size: 14pt;
+    }
+    h3 {
+        font-size: 12pt;
+    }
+    h4 {
+        font-size: 10pt;
+        margin-top: 0.8em;
+        margin-bottom: 0.3em;
+    }
+    h5, h6 {
+        font-size: 9pt;
+        margin-top: 0.6em;
+        margin-bottom: 0.2em;
+    }
+    code {
+        background-color: #f8f9fa;
+        padding: 1px 3px;
+        border-radius: 2px;
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        font-size: 8pt;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+    pre {
+        background-color: #f8f9fa;
+        padding: 10px;
+        border-radius: 3px;
+        overflow-x: auto;
+        border-left: 3px solid #3498db;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        font-size: 8pt;
+        margin: 0.5em 0;
+    }
+    pre code {
+        background-color: transparent;
+        padding: 0;
+        border-radius: 0;
+        font-size: 8pt;
+    }
+    /* Python-specific styling */
+    pre code.language-python {
+        color: #2c3e50;
+    }
+    /* R-specific styling */
+    pre code.language-r {
+        color: #8e44ad;
+    }
+    /* Bash-specific styling */
+    pre code.language-bash {
+        color: #27ae60;
+    }
+    /* Terminal-specific styling for observations */
+    pre code.language-terminal {
+        background-color: transparent;
+        color: #333;
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        font-size: 7pt;
+        line-height: 1.3;
+        border: none;
+        border-radius: 0;
+    }
+    pre.language-terminal {
+        background-color: transparent;
+        border: none;
+        color: #333;
+        border-radius: 0;
+    }
+    /* Observation header styling */
+    h4.observation-header {
+        font-size: 9pt;
+        font-weight: normal;
+        color: #6c757d;
+        margin-top: 0.5em;
+        margin-bottom: 0.2em;
+        font-style: italic;
+    }
+    /* Code header styling */
+    strong {
+        font-size: 9pt;
+        font-weight: normal;
+        color: #6c757d;
+        font-style: italic;
+    }
+    /* Solution-specific styling */
+    pre code.language-solution {
+        background-color: #f8f9fa;
+        color: #333;
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        font-size: 8pt;
+        line-height: 1.4;
+        border: 1px solid #e9ecef;
+        border-radius: 3px;
+    }
+    pre.language-solution {
+        background-color: #f8f9fa;
+        border-left: 3px solid #6c757d;
+        color: #333;
+        border: 1px solid #e9ecef;
+        border-radius: 3px;
+    }
+    blockquote {
+        border-left: 3px solid #bdc3c7;
+        margin: 0.5em 0;
+        padding-left: 15px;
+        color: #7f8c8d;
+        font-size: 8pt;
+    }
+    table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 0.5em 0;
+        font-size: 8pt;
+    }
+    th, td {
+        border: 1px solid #bdc3c7;
+        padding: 4px 8px;
+        text-align: left;
+    }
+    th {
+        background-color: #ecf0f1;
+        font-weight: bold;
+    }
+    img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin: 10px auto;
+        border: 1px solid #ddd;
+        border-radius: 3px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .image-container {
+        text-align: center;
+        margin: 10px 0;
+    }
+    .image-caption {
+        font-style: italic;
+        color: #666;
+        font-size: 8pt;
+        margin-top: 3px;
+    }
+    p {
+        font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', 'Twemoji', 'EmojiOne Color', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        margin: 0.3em 0;
+    }
+    /* Tool call highlighting - matching observation and code formatting */
+    .tool-call-highlight {
+        background-color: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 3px;
+        padding: 0;
+        margin: 10px 0;
+        overflow: hidden;
+    }
+    .tool-call-header {
+        background-color: #e9ecef;
+        color: #495057;
+        padding: 8px 12px;
+        margin: 0;
+        font-weight: normal;
+        font-size: 9pt;
+        font-style: italic;
+        border-bottom: 1px solid #dee2e6;
+    }
+    .tool-call-input {
+        background-color: #f8f9fa;
+        border: none;
+        border-radius: 0;
+        padding: 10px 12px;
+        margin: 0;
+        color: #333;
+        font-size: 8pt;
+        line-height: 1.4;
+    }
+    .tool-call-input strong {
+        color: #495057;
+        font-weight: normal;
+        font-size: 8pt;
+        font-style: italic;
+    }
+    .tool-call-input pre {
+        background-color: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 3px;
+        padding: 10px;
+        margin: 0;
+        font-size: 8pt;
+        line-height: 1.4;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+    .tool-call-input code {
+        background-color: transparent;
+        padding: 0;
+        border-radius: 0;
+        font-size: 8pt;
+        color: #2c3e50;
+    }
+    .tools-used {
+        background-color: #f8f9fa;
+        border-top: 1px solid #dee2e6;
+        padding: 8px 12px;
+        margin: 0;
+        font-size: 8pt;
+        color: #6c757d;
+    }
+    .tools-used strong {
+        color: #6c757d;
+        font-weight: normal;
+        font-size: 8pt;
+        font-style: italic;
+    }
+    /* Title-text styling - unified for observations, plans, and solutions */
+    .title-text {
+        background-color: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 3px;
+        padding: 0;
+        margin: 10px 0;
+        overflow: hidden;
+    }
+    .title-text-header {
+        background-color: #e9ecef;
+        color: #495057;
+        padding: 8px 12px;
+        margin: 0;
+        font-weight: normal;
+        font-size: 9pt;
+        font-style: italic;
+        border-bottom: 1px solid #dee2e6;
+    }
+    .title-text-header strong {
+        color: #495057;
+        font-weight: normal;
+        font-size: 9pt;
+        font-style: italic;
+    }
+    .title-text-content {
+        background-color: #f8f9fa;
+        border: none;
+        border-radius: 0;
+        padding: 10px 12px;
+        margin: 0;
+        color: #333;
+        font-size: 8pt;
+        line-height: 1.4;
+    }
+    /* Plan-specific styling - soft blue pastel */
+    .title-text.plan {
+        background-color: #e3f2fd;
+        border-color: #bbdefb;
+    }
+    .title-text.plan .title-text-header {
+        background-color: #bbdefb;
+        color: #1976d2;
+    }
+    .title-text.plan .title-text-content {
+        background-color: #e3f2fd;
+    }
+    .plan-title {
+        font-style: italic;
+        font-weight: normal;
+        color: #1565c0;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    }
+    /* Code execution-specific styling - matching title-text styling */
+    .tool-call-highlight {
+        background-color: #f8f9fa;
+        border-color: #e9ecef;
+    }
+    .tool-call-header {
+        background-color: #e9ecef;
+        color: #495057;
+    }
+    .tool-call-input {
+        background-color: #f8f9fa;
+        color: #333;
+    }
+    /* Observation-specific styling - soft purple pastel */
+    .title-text.observation {
+        background-color: #f3e5f5;
+        border-color: #e1bee7;
+    }
+    .title-text.observation .title-text-header {
+        background-color: #e1bee7;
+        color: #7b1fa2;
+    }
+    .title-text.observation .title-text-content {
+        background-color: #f3e5f5;
+    }
+    /* Summary and solution-specific styling - soft orange pastel, no overlay */
+    .title-text.summary {
+        background-color: #fff3e0;
+        border-color: #ffcc02;
+    }
+    .title-text.summary .title-text-header {
+        background-color: #ffcc02;
+        color: #f57c00;
+    }
+    .title-text.summary .title-text-content {
+        background-color: #fff3e0;
+    }
+    .title-text-content ul {
+        background-color: transparent;
+        border: none;
+        border-radius: 0;
+        padding: 0;
+        margin: 0;
+        color: #333;
+        font-size: 8pt;
+        line-height: 1.4;
+    }
+    .title-text-content li {
+        margin: 3px 0;
+        color: #333;
+    }
+    .title-text-content li strong {
+        color: #495057;
+        font-weight: normal;
+        font-size: 8pt;
+        font-style: italic;
+    }
+    .title-text-content li code {
+        background-color: #e9ecef;
+        color: #333;
+        padding: 1px 3px;
+        border-radius: 2px;
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        font-size: 7pt;
+    }
+    .title-text-content pre {
+        background-color: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 3px;
+        padding: 10px;
+        margin: 0;
+        font-size: 8pt;
+        line-height: 1.4;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+    .title-text-content code {
+        background-color: transparent;
+        padding: 0;
+        border-radius: 0;
+        font-size: 8pt;
+        color: #2c3e50;
+    }
+    /* Remove any color highlighting from text */
+    .highlight, .highlight * {
+        color: #000000 !important;
+        background-color: transparent !important;
+    }
+    /* Parsing error display styling */
+    .parsing-error-box {
+        background-color: #ffebee;
+        border: 1px solid #f44336;
+        border-radius: 4px;
+        padding: 8px 12px;
+        margin: 8px 0;
+        font-size: 9pt;
+        color: #c62828;
+        box-shadow: 0 2px 4px rgba(244, 67, 54, 0.1);
+    }
+    .parsing-error-header {
+        font-weight: bold;
+        margin-bottom: 4px;
+        color: #d32f2f;
+    }
+    .parsing-error-content {
+        font-family: 'Courier New', monospace;
+        background-color: #ffcdd2;
+        padding: 4px 6px;
+        border-radius: 2px;
+        margin-top: 4px;
+        font-size: 8pt;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+    """
