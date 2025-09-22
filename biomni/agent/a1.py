@@ -97,7 +97,7 @@ class A1:
 
         # Display configuration in a nice, readable format
         print("\n" + "=" * 50)
-        print("BIOMNI CONFIGURATION")
+        print("🔧 BIOMNI CONFIGURATION")
         print("=" * 50)
 
         # Get the actual LLM values that will be used by the agent
@@ -105,7 +105,7 @@ class A1:
         agent_source = source if source is not None else default_config.source
 
         # Show default config (database LLM)
-        print("DEFAULT CONFIG (Including Database LLM):")
+        print("📋 DEFAULT CONFIG (Including Database LLM):")
         config_dict = default_config.to_dict()
         for key, value in config_dict.items():
             if value is not None:
@@ -991,9 +991,9 @@ class A1:
                     name = tool.get("name", "Unknown")
                     desc = tool.get("description", "")
                     module = tool.get("module", "custom_tools")
-                    custom_tools_formatted.append(f"{name} (from {module}): {desc}")
+                    custom_tools_formatted.append(f"🔧 {name} (from {module}): {desc}")
                 else:
-                    custom_tools_formatted.append(f"{str(tool)}")
+                    custom_tools_formatted.append(f"🔧 {str(tool)}")
 
         custom_data_formatted = []
         if custom_data:
@@ -1001,10 +1001,10 @@ class A1:
                 if isinstance(item, dict):
                     name = item.get("name", "Unknown")
                     desc = item.get("description", "")
-                    custom_data_formatted.append(f"{format_item_with_description(name, desc)}")
+                    custom_data_formatted.append(f"📊 {format_item_with_description(name, desc)}")
                 else:
                     desc = self.data_lake_dict.get(item, f"Custom data: {item}")
-                    custom_data_formatted.append(f"{format_item_with_description(item, desc)}")
+                    custom_data_formatted.append(f"📊 {format_item_with_description(item, desc)}")
 
         custom_software_formatted = []
         if custom_software:
@@ -1012,10 +1012,10 @@ class A1:
                 if isinstance(item, dict):
                     name = item.get("name", "Unknown")
                     desc = item.get("description", "")
-                    custom_software_formatted.append(f"{format_item_with_description(name, desc)}")
+                    custom_software_formatted.append(f"⚙️ {format_item_with_description(name, desc)}")
                 else:
                     desc = self.library_content_dict.get(item, f"Custom software: {item}")
-                    custom_software_formatted.append(f"{format_item_with_description(item, desc)}")
+                    custom_software_formatted.append(f"⚙️ {format_item_with_description(item, desc)}")
 
         # Base prompt
         prompt_modifier = """
@@ -1087,21 +1087,21 @@ IMPORTANT: The following custom resources have been specifically added for your 
 
             if custom_tools_formatted:
                 prompt_modifier += """
-CUSTOM TOOLS (USE THESE FIRST):
+🔧 CUSTOM TOOLS (USE THESE FIRST):
 {custom_tools}
 
 """
 
             if custom_data_formatted:
                 prompt_modifier += """
-CUSTOM DATA (PRIORITIZE THESE DATASETS):
+📊 CUSTOM DATA (PRIORITIZE THESE DATASETS):
 {custom_data}
 
 """
 
             if custom_software_formatted:
                 prompt_modifier += """
-CUSTOM SOFTWARE (USE THESE LIBRARIES):
+⚙️ CUSTOM SOFTWARE (USE THESE LIBRARIES):
 {custom_software}
 
 """

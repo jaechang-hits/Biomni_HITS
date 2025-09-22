@@ -1463,6 +1463,25 @@ def process_observation_with_images(observation_content: str) -> str:
     return content_html
 
 
+def remove_emojis_from_text(text: str) -> str:
+    """Remove emojis from text for markdown/PDF output."""
+    import re
+
+    # Remove common emojis used in the system prompt, this makes conversion simpler
+    emoji_patterns = [
+        r"🔧\s*",  # Tool emoji
+        r"📊\s*",  # Data emoji
+        r"⚙️\s*",  # Software emoji
+        r"📋\s*",  # Config emoji
+        r"🤖\s*",  # Agent emoji
+    ]
+
+    for pattern in emoji_patterns:
+        text = re.sub(pattern, "", text)
+
+    return text
+
+
 def format_lists_in_text(text: str) -> str:
     """Format numbered lists and bullet points in text to proper markdown format."""
     import re
@@ -1475,6 +1494,9 @@ def format_lists_in_text(text: str) -> str:
     # Handle any other bold formatting patterns for plan titles
     text = re.sub(r"<strong>([Pp]lan|Updated [Pp]lan|Completed [Pp]lan|Final [Pp]lan):</strong>", r"\1:", text)
     text = re.sub(r"<strong>([Pp]lan|Updated [Pp]lan|Completed [Pp]lan|Final [Pp]lan)</strong>", r"\1", text)
+
+    # Remove emojis from the text for markdown/PDF output
+    text = remove_emojis_from_text(text)
 
     lines = text.split("\n")
     list_blocks = identify_list_blocks(lines)
@@ -1719,66 +1741,12 @@ def get_pdf_css_content() -> str:
         border-radius: 0;
         font-size: 8pt;
     }
-    /* Python-specific styling */
-    pre code.language-python {
-        color: #2c3e50;
-    }
-    /* R-specific styling */
-    pre code.language-r {
-        color: #8e44ad;
-    }
-    /* Bash-specific styling */
-    pre code.language-bash {
-        color: #27ae60;
-    }
-    /* Terminal-specific styling for observations */
-    pre code.language-terminal {
-        background-color: transparent;
-        color: #333;
-        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-        font-size: 7pt;
-        line-height: 1.3;
-        border: none;
-        border-radius: 0;
-    }
-    pre.language-terminal {
-        background-color: transparent;
-        border: none;
-        color: #333;
-        border-radius: 0;
-    }
-    /* Observation header styling */
-    h4.observation-header {
-        font-size: 9pt;
-        font-weight: normal;
-        color: #6c757d;
-        margin-top: 0.5em;
-        margin-bottom: 0.2em;
-        font-style: italic;
-    }
     /* Code header styling */
     strong {
         font-size: 9pt;
         font-weight: normal;
         color: #6c757d;
         font-style: italic;
-    }
-    /* Solution-specific styling */
-    pre code.language-solution {
-        background-color: #f8f9fa;
-        color: #333;
-        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-        font-size: 8pt;
-        line-height: 1.4;
-        border: 1px solid #e9ecef;
-        border-radius: 3px;
-    }
-    pre.language-solution {
-        background-color: #f8f9fa;
-        border-left: 3px solid #6c757d;
-        color: #333;
-        border: 1px solid #e9ecef;
-        border-radius: 3px;
     }
     blockquote {
         border-left: 3px solid #bdc3c7;
@@ -1810,16 +1778,6 @@ def get_pdf_css_content() -> str:
         border: 1px solid #ddd;
         border-radius: 3px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    .image-container {
-        text-align: center;
-        margin: 10px 0;
-    }
-    .image-caption {
-        font-style: italic;
-        color: #666;
-        font-size: 8pt;
-        margin-top: 3px;
     }
     p {
         font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', 'Twemoji', 'EmojiOne Color', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -2032,11 +1990,6 @@ def get_pdf_css_content() -> str:
         border-radius: 0;
         font-size: 8pt;
         color: #2c3e50;
-    }
-    /* Remove any color highlighting from text */
-    .highlight, .highlight * {
-        color: #000000 !important;
-        background-color: transparent !important;
     }
     /* Parsing error display styling */
     .parsing-error-box {
