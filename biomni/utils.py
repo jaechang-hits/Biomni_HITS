@@ -1028,9 +1028,11 @@ def clean_message_content(content: str) -> str:
 def should_skip_message(clean_output: str) -> bool:
     """Check if message should be skipped."""
     return (
-        clean_output.strip() in ["", "None", "null", "undefined"]
-        or "There are no tags" in clean_output
-        or "Execution terminated due to repeated parsing errors" in clean_output
+        clean_output.strip()
+        in ["", "None", "null", "undefined"]
+        # Don't skip parsing error messages - they should be displayed and increment step counter
+        # or "There are no tags" in clean_output
+        # or "Execution terminated due to repeated parsing errors" in clean_output
     )
 
 
@@ -1052,14 +1054,9 @@ def create_parsing_error_html() -> str:
     return """
 <div class="parsing-error-box">
     <div class="parsing-error-header">Parsing Error</div>
-    <div class="parsing-error-content">Each response must include thinking process followed by either <execute> or <solution> tag. But there are no tags in the current response.</div>
+    <div class="parsing-error-content">Each response must include thinking process followed by either execute or solution tag. But there are no tags in the current response.</div>
 </div>
 """
-
-
-# ============================================================================
-# TOOL PARSING UTILITIES
-# ============================================================================
 
 
 def parse_tool_calls_from_code(code: str, module2api: dict, custom_functions: dict = None) -> list[str]:
@@ -1565,7 +1562,7 @@ def format_single_list(text: str) -> str:
         # This is a list - return with container div and styled title
         return f"""<div class="title-text plan">
 <div class="title-text-header">
-<strong class="plan-title">{plan_title}</strong>
+<span class="plan-title">{plan_title}</span>
 </div>
 <div class="title-text-content">
 <ul>
@@ -1939,6 +1936,9 @@ def get_pdf_css_content() -> str:
         font-weight: normal;
         color: #1565c0;
         text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    }
+    .plan-title strong {
+        font-weight: normal;
     }
     /* Code execution-specific styling - matching title-text styling */
     .tool-call-highlight {

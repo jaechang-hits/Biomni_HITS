@@ -2000,7 +2000,7 @@ Each library is listed with its description to help you understand its functiona
         msg_type = message_data["type"]
 
         if msg_type == "human":
-            return self._process_human_message(clean_output, content, first_human_shown)
+            return self._process_human_message(clean_output, content, step_number, first_human_shown)
         elif msg_type == "ai":
             return self._process_ai_message(clean_output, content, step_number, added_plots, include_images)
         else:
@@ -2008,7 +2008,7 @@ Each library is listed with its description to help you understand its functiona
                 clean_output, content, step_number, first_human_shown, added_plots, include_images
             )
 
-    def _process_human_message(self, clean_output, content, first_human_shown):
+    def _process_human_message(self, clean_output, content, step_number, first_human_shown):
         """Process human messages."""
         if "each response must include thinking process" in clean_output.lower():
             parsing_error_content = create_parsing_error_html()
@@ -2018,15 +2018,46 @@ Each library is listed with its description to help you understand its functiona
             content += f"*{clean_output}*\n\n"
             first_human_shown = True
 
-        return content, 0, first_human_shown  # step_number unchanged
+        return content, step_number, first_human_shown  # step_number unchanged
 
     def _process_ai_message(self, clean_output, content, step_number, added_plots, include_images):
         """Process AI messages."""
-        if "observation" in clean_output.lower():
-            formatted_observation = format_observation_as_terminal(clean_output)
-            if formatted_observation is not None:
-                content += f"{formatted_observation}\n\n"
-            return content, step_number, True  # first_human_shown unchanged
+        # Check if this message contains observation tags and process accordingly
+        import re
+
+        observation_pattern = r"<observation>(.*?)</observation>"
+        observation_matches = re.findall(observation_pattern, clean_output, re.DOTALL | re.IGNORECASE)
+
+        if observation_matches:
+            # Extract content before, between, and after observation tags
+            parts = re.split(observation_pattern, clean_output, flags=re.DOTALL | re.IGNORECASE)
+
+            # Process each part
+            for i, part in enumerate(parts):
+                if i % 2 == 0:  # Even indices are non-observation content
+                    if part.strip():
+                        # This is regular content - process it normally
+                        if not should_skip_message(part):
+                            if part.strip():
+                                step_number += 1
+                                content += f"#### Step {step_number}\n\n"
+
+                                # Handle execution results if present
+                                execution_results = getattr(self, "_execution_results", None)
+                                if has_execution_results(part, execution_results):
+                                    content, added_plots = self._process_execution_with_results(
+                                        part, content, added_plots, include_images, execution_results
+                                    )
+                                else:
+                                    content = self._process_regular_ai_message(part, content)
+                else:  # Odd indices are observation content
+                    if part.strip():
+                        # This is observation content - format as terminal
+                        formatted_observation = format_observation_as_terminal(f"<observation>{part}</observation>")
+                        if formatted_observation is not None:
+                            content += f"{formatted_observation}\n\n"
+
+            return content, step_number, True
 
         # Skip empty or error messages
         if should_skip_message(clean_output):
@@ -2051,7 +2082,10 @@ Each library is listed with its description to help you understand its functiona
         self, clean_output, content, step_number, first_human_shown, added_plots, include_images
     ):
         """Process other message types."""
-        if "observation" not in clean_output.lower():
+        # Check if this is actually an observation (has <observation> tags)
+        import re
+
+        if not re.search(r"<observation>", clean_output, re.IGNORECASE):
             content += f"{clean_output}\n\n"
         return content, step_number, first_human_shown
 
