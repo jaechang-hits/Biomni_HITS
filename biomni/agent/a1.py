@@ -1277,6 +1277,19 @@ Each library is listed with its description to help you understand its functiona
                 state["next_step"] = "generate"
             else:
                 print("parsing error...")
+                # Create parsing error display with context
+                error_context = f"Response content: {msg[:200]}{'...' if len(msg) > 200 else ''}"
+                parsing_error_content = f"""
+<div class="parsing-error-box">
+    <div class="parsing-error-header">Parsing Error</div>
+    <div class="parsing-error-content">{error_context}</div>
+</div>
+
+**Error Details:** The response did not contain the required `<execute>` or `<solution>` tags.
+"""
+                # Add the parsing error message to the conversation state
+                state["messages"].append(AIMessage(content=parsing_error_content))
+
                 # Check if we already added an error message to avoid infinite loops
                 error_count = sum(
                     1 for m in state["messages"] if isinstance(m, AIMessage) and "There are no tags" in m.content
@@ -2051,9 +2064,19 @@ Each library is listed with its description to help you understand its functiona
 
                 # Detect message type and add to markdown
                 if isinstance(message, HumanMessage):
-                    if not first_human_shown:
-                        content += "#### Human\n\n"
-                        content += f"{clean_output}\n\n"
+                    # Check for parsing error messages that should be displayed in red box
+                    if "each response must include thinking process" in clean_output.lower():
+                        # Create parsing error display
+                        parsing_error_content = f"""
+<div class="parsing-error-box">
+    <div class="parsing-error-header">Parsing Error</div>
+    <div class="parsing-error-content">Each response must include thinking process followed by either execute or solution tag. But there are no tags in the current response.</div>
+</div>
+"""
+                        content += f"{parsing_error_content}\n\n"
+                    elif not first_human_shown:
+                        content += "#### Human Prompt\n\n"
+                        content += f"*{clean_output}*\n\n"
                         first_human_shown = True
                     # Skip subsequent human messages
                 elif isinstance(message, AIMessage):
@@ -2064,44 +2087,54 @@ Each library is listed with its description to help you understand its functiona
                         if formatted_observation is not None:
                             content += f"{formatted_observation}\n\n"
                     else:
-                        step_number += 1
-                        content += f"#### Step {step_number}\n\n"
-
-                        # Check if this AI message contains execution and we have execution results
+                        # Skip parsing error messages and empty responses
                         if (
-                            "<execute>" in clean_output
-                            and hasattr(self, "_execution_results")
-                            and self._execution_results
+                            clean_output.strip() in ["", "None", "null", "undefined"]
+                            or "There are no tags" in clean_output
+                            or "Execution terminated due to repeated parsing errors" in clean_output
                         ):
-                            # Find matching execution result
-                            matching_execution = None
-                            for exec_result in self._execution_results:
-                                if (
-                                    exec_result["triggering_message"] in clean_output
-                                    or clean_output in exec_result["triggering_message"]
-                                ):
-                                    matching_execution = exec_result
-                                    break
+                            continue
 
-                            if matching_execution:
+                        # Only create a step if there's meaningful content
+                        if clean_output.strip():
+                            step_number += 1
+                            content += f"#### Step {step_number}\n\n"
+
+                            # Check if this AI message contains execution and we have execution results
+                            if (
+                                "<execute>" in clean_output
+                                and hasattr(self, "_execution_results")
+                                and self._execution_results
+                            ):
+                                # Find matching execution result
+                                matching_execution = None
+                                for exec_result in self._execution_results:
+                                    if (
+                                        exec_result["triggering_message"] in clean_output
+                                        or clean_output in exec_result["triggering_message"]
+                                    ):
+                                        matching_execution = exec_result
+                                        break
+
+                                if matching_execution:
+                                    # Process the AI message to extract and format execute tags
+                                    formatted_content = self._format_execute_tags_in_content(clean_output)
+                                    # Format lists in the content
+                                    formatted_content = self._format_lists_in_text(formatted_content)
+                                    content += f"{formatted_content}\n\n"
+
+                                    # Add any plots that were generated during this execution
+                                    if include_images and matching_execution.get("images"):
+                                        for plot_data in matching_execution["images"]:
+                                            if plot_data not in added_plots:
+                                                content += f"![Plot]({plot_data})\n\n"
+                                                added_plots.add(plot_data)
+                            else:
                                 # Process the AI message to extract and format execute tags
                                 formatted_content = self._format_execute_tags_in_content(clean_output)
                                 # Format lists in the content
                                 formatted_content = self._format_lists_in_text(formatted_content)
                                 content += f"{formatted_content}\n\n"
-
-                                # Add any plots that were generated during this execution
-                                if include_images and matching_execution.get("images"):
-                                    for plot_data in matching_execution["images"]:
-                                        if plot_data not in added_plots:
-                                            content += f"![Plot]({plot_data})\n\n"
-                                            added_plots.add(plot_data)
-                        else:
-                            # Process the AI message to extract and format execute tags
-                            formatted_content = self._format_execute_tags_in_content(clean_output)
-                            # Format lists in the content
-                            formatted_content = self._format_lists_in_text(formatted_content)
-                            content += f"{formatted_content}\n\n"
                 else:
                     # For other message types, only process if not already handled as observation
                     if "observation" not in clean_output.lower():
@@ -2120,9 +2153,19 @@ Each library is listed with its description to help you understand its functiona
 
                 # Detect log entry type and add to markdown
                 if "Human Message" in clean_output:
-                    if not first_human_shown:
-                        content += "#### Human\n\n"
-                        content += f"{clean_output}\n\n"
+                    # Check for parsing error messages that should be displayed in red box
+                    if "each response must include thinking process" in clean_output.lower():
+                        # Create parsing error display
+                        parsing_error_content = f"""
+<div class="parsing-error-box">
+    <div class="parsing-error-header">Parsing Error</div>
+    <div class="parsing-error-content">Each response must include thinking process followed by either <execute> or <solution> tag. But there are no tags in the current response.</div>
+</div>
+"""
+                        content += f"{parsing_error_content}\n\n"
+                    elif not first_human_shown:
+                        content += "#### Human Prompt\n\n"
+                        content += f"*{clean_output}*\n\n"
                         first_human_shown = True
                     # Skip subsequent human messages
                 elif "Ai Message" in clean_output:
@@ -2133,44 +2176,54 @@ Each library is listed with its description to help you understand its functiona
                         if formatted_observation is not None:
                             content += f"{formatted_observation}\n\n"
                     else:
-                        step_number += 1
-                        content += f"#### Step {step_number}\n\n"
-
-                        # Check if this AI message contains execution and we have execution results
+                        # Skip parsing error messages and empty responses
                         if (
-                            "<execute>" in clean_output
-                            and hasattr(self, "_execution_results")
-                            and self._execution_results
+                            clean_output.strip() in ["", "None", "null", "undefined"]
+                            or "There are no tags" in clean_output
+                            or "Execution terminated due to repeated parsing errors" in clean_output
                         ):
-                            # Find matching execution result
-                            matching_execution = None
-                            for exec_result in self._execution_results:
-                                if (
-                                    exec_result["triggering_message"] in clean_output
-                                    or clean_output in exec_result["triggering_message"]
-                                ):
-                                    matching_execution = exec_result
-                                    break
+                            continue
 
-                            if matching_execution:
+                        # Only create a step if there's meaningful content
+                        if clean_output.strip():
+                            step_number += 1
+                            content += f"#### Step {step_number}\n\n"
+
+                            # Check if this AI message contains execution and we have execution results
+                            if (
+                                "<execute>" in clean_output
+                                and hasattr(self, "_execution_results")
+                                and self._execution_results
+                            ):
+                                # Find matching execution result
+                                matching_execution = None
+                                for exec_result in self._execution_results:
+                                    if (
+                                        exec_result["triggering_message"] in clean_output
+                                        or clean_output in exec_result["triggering_message"]
+                                    ):
+                                        matching_execution = exec_result
+                                        break
+
+                                if matching_execution:
+                                    # Process the AI message to extract and format execute tags
+                                    formatted_content = self._format_execute_tags_in_content(clean_output)
+                                    # Format lists in the content
+                                    formatted_content = self._format_lists_in_text(formatted_content)
+                                    content += f"{formatted_content}\n\n"
+
+                                    # Add any plots that were generated during this execution
+                                    if include_images and matching_execution.get("images"):
+                                        for plot_data in matching_execution["images"]:
+                                            if plot_data not in added_plots:
+                                                content += f"![Plot]({plot_data})\n\n"
+                                                added_plots.add(plot_data)
+                            else:
                                 # Process the AI message to extract and format execute tags
                                 formatted_content = self._format_execute_tags_in_content(clean_output)
                                 # Format lists in the content
                                 formatted_content = self._format_lists_in_text(formatted_content)
                                 content += f"{formatted_content}\n\n"
-
-                                # Add any plots that were generated during this execution
-                                if include_images and matching_execution.get("images"):
-                                    for plot_data in matching_execution["images"]:
-                                        if plot_data not in added_plots:
-                                            content += f"![Plot]({plot_data})\n\n"
-                                            added_plots.add(plot_data)
-                        else:
-                            # Process the AI message to extract and format execute tags
-                            formatted_content = self._format_execute_tags_in_content(clean_output)
-                            # Format lists in the content
-                            formatted_content = self._format_lists_in_text(formatted_content)
-                            content += f"{formatted_content}\n\n"
                 else:
                     # For other log entry types, only process if not already handled as observation
                     if "observation" not in clean_output.lower():
@@ -2587,7 +2640,6 @@ Each library is listed with its description to help you understand its functiona
             # This is a list - return with container div
             return f"""<div class="title-text plan">
 <div class="title-text-header">
-<strong>Plan</strong>
 </div>
 <div class="title-text-content">
 <ul>
@@ -2819,8 +2871,9 @@ Each library is listed with its description to help you understand its functiona
                 background-color: #f8f9fa;
                 border: none;
                 border-radius: 0;
-                padding: 0;
+                padding: 10px 12px;
                 margin: 0;
+                color: #333;
                 font-size: 8pt;
                 line-height: 1.4;
             }
@@ -2850,15 +2903,15 @@ Each library is listed with its description to help you understand its functiona
                 color: #2c3e50;
             }
             .tools-used {
-                background-color: #e8f4fd;
+                background-color: #f8f9fa;
                 border-top: 1px solid #dee2e6;
                 padding: 8px 12px;
                 margin: 0;
                 font-size: 8pt;
-                color: #495057;
+                color: #6c757d;
             }
             .tools-used strong {
-                color: #495057;
+                color: #6c757d;
                 font-weight: normal;
                 font-size: 8pt;
                 font-style: italic;
@@ -2910,17 +2963,18 @@ Each library is listed with its description to help you understand its functiona
             .title-text.plan .title-text-content {
                 background-color: #e3f2fd;
             }
-            /* Code execution-specific styling - soft green pastel */
+            /* Code execution-specific styling - matching title-text styling */
             .tool-call-highlight {
-                background-color: #e8f5e8;
-                border-color: #c8e6c9;
+                background-color: #f8f9fa;
+                border-color: #e9ecef;
             }
             .tool-call-header {
-                background-color: #c8e6c9;
-                color: #388e3c;
+                background-color: #e9ecef;
+                color: #495057;
             }
             .tool-call-input {
-                background-color: #e8f5e8;
+                background-color: #f8f9fa;
+                color: #333;
             }
             /* Observation-specific styling - soft purple pastel */
             .title-text.observation {
@@ -2997,6 +3051,32 @@ Each library is listed with its description to help you understand its functiona
             .highlight, .highlight * {
                 color: #000000 !important;
                 background-color: transparent !important;
+            }
+            /* Parsing error display styling */
+            .parsing-error-box {
+                background-color: #ffebee;
+                border: 1px solid #f44336;
+                border-radius: 4px;
+                padding: 8px 12px;
+                margin: 8px 0;
+                font-size: 9pt;
+                color: #c62828;
+                box-shadow: 0 2px 4px rgba(244, 67, 54, 0.1);
+            }
+            .parsing-error-header {
+                font-weight: bold;
+                margin-bottom: 4px;
+                color: #d32f2f;
+            }
+            .parsing-error-content {
+                font-family: 'Courier New', monospace;
+                background-color: #ffcdd2;
+                padding: 4px 6px;
+                border-radius: 2px;
+                margin-top: 4px;
+                font-size: 8pt;
+                white-space: pre-wrap;
+                word-wrap: break-word;
             }
             """
 
