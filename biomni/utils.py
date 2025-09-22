@@ -1467,6 +1467,15 @@ def format_lists_in_text(text: str) -> str:
     """Format numbered lists and bullet points in text to proper markdown format."""
     import re
 
+    # Preprocess to remove bold formatting from plan titles
+    # Remove **Plan:**, **Updated Plan:**, **Completed Plan:**, etc.
+    text = re.sub(r"\*\*([Pp]lan|Updated [Pp]lan|Completed [Pp]lan|Final [Pp]lan):\*\*", r"\1:", text)
+    # Also handle cases without colons
+    text = re.sub(r"\*\*([Pp]lan|Updated [Pp]lan|Completed [Pp]lan|Final [Pp]lan)\*\*", r"\1", text)
+    # Handle any other bold formatting patterns for plan titles
+    text = re.sub(r"<strong>([Pp]lan|Updated [Pp]lan|Completed [Pp]lan|Final [Pp]lan):</strong>", r"\1:", text)
+    text = re.sub(r"<strong>([Pp]lan|Updated [Pp]lan|Completed [Pp]lan|Final [Pp]lan)</strong>", r"\1", text)
+
     lines = text.split("\n")
     list_blocks = identify_list_blocks(lines)
 
