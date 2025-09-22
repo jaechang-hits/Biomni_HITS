@@ -1019,14 +1019,44 @@ def check_and_download_s3_files(
 
 
 def clean_message_content(content: str) -> str:
-    """Clean message content by removing ANSI codes."""
+    """Clean message content by removing ANSI escape codes.
+
+    This function removes ANSI escape sequences (like color codes) from text content
+    that might be present in terminal output or console messages. This ensures clean
+    text for markdown generation and PDF conversion.
+
+    Args:
+        content: The raw message content that may contain ANSI escape codes
+
+    Returns:
+        Cleaned content with ANSI escape codes removed
+
+    Example:
+        >>> clean_message_content("Hello \x1b[31mworld\x1b[0m!")
+        "Hello world!"
+    """
     import re
 
     return re.sub(r"\x1b\[[0-9;]*m", "", content)
 
 
 def should_skip_message(clean_output: str) -> bool:
-    """Check if message should be skipped."""
+    """Check if message should be skipped during markdown generation.
+
+    This function determines whether a message should be excluded from the final
+    markdown output. It skips empty or meaningless messages but preserves important
+    error messages that should be displayed to users.
+
+    Args:
+        clean_output: The cleaned message content to evaluate
+
+    Returns:
+        True if the message should be skipped, False otherwise
+
+    Note:
+        Parsing error messages are intentionally not skipped as they provide
+        important feedback to users about conversation flow issues.
+    """
     return (
         clean_output.strip()
         in ["", "None", "null", "undefined"]
@@ -1037,12 +1067,40 @@ def should_skip_message(clean_output: str) -> bool:
 
 
 def has_execution_results(clean_output: str, execution_results) -> bool:
-    """Check if message has execution results."""
+    """Check if message contains code execution and has associated results.
+
+    This function determines whether a message contains executable code and has
+    corresponding execution results available for display in the markdown output.
+
+    Args:
+        clean_output: The cleaned message content to check for execute tags
+        execution_results: List of execution results from the agent's execution history
+
+    Returns:
+        True if the message contains <execute> tags and has execution results available
+    """
     return "<execute>" in clean_output and execution_results is not None and execution_results
 
 
 def find_matching_execution(clean_output: str, execution_results) -> dict | None:
-    """Find matching execution result."""
+    """Find the execution result that matches the given message content.
+
+    This function searches through the execution results to find the one that
+    corresponds to the current message. It matches based on the triggering message
+    content to associate execution results with their originating AI messages.
+
+    Args:
+        clean_output: The cleaned message content to match against
+        execution_results: List of execution result dictionaries containing
+                         triggering messages and execution data
+
+    Returns:
+        The matching execution result dictionary if found, None otherwise
+
+    Note:
+        The matching is bidirectional - it checks if either the triggering message
+        is contained in the current output or vice versa to handle partial matches.
+    """
     for exec_result in execution_results:
         if exec_result["triggering_message"] in clean_output or clean_output in exec_result["triggering_message"]:
             return exec_result
@@ -1050,7 +1108,19 @@ def find_matching_execution(clean_output: str, execution_results) -> dict | None
 
 
 def create_parsing_error_html() -> str:
-    """Create HTML for parsing error display."""
+    """Create HTML markup for displaying parsing errors in markdown output.
+
+    This function generates a styled HTML block that displays parsing errors
+    when the agent's response doesn't contain the required tags. The HTML
+    uses CSS classes for consistent styling in the final PDF output.
+
+    Returns:
+        HTML string containing a styled parsing error message box
+
+    Note:
+        The returned HTML uses CSS classes defined in get_pdf_css_content()
+        for consistent styling across the document.
+    """
     return """
 <div class="parsing-error-box">
     <div class="parsing-error-header">Parsing Error</div>
@@ -1060,30 +1130,51 @@ def create_parsing_error_html() -> str:
 
 
 def parse_tool_calls_from_code(code: str, module2api: dict, custom_functions: dict = None) -> list[str]:
-    """Parse code to detect imported tools by looking for import statements.
+    """Parse code to detect imported tools by analyzing import statements.
+
+    This function analyzes Python code to identify which tools/functions are being
+    imported and used. It extracts tool names from import statements and function
+    calls, then returns a deduplicated list of detected tool names.
 
     Args:
-        code: The Python code to parse
-        module2api: Dictionary mapping modules to their API tools
-        custom_functions: Dictionary of custom functions
+        code: The Python code string to analyze for tool imports
+        module2api: Dictionary mapping module names to their available API tools
+        custom_functions: Optional dictionary of custom functions that have been
+                         added to the agent
 
     Returns:
-        List of detected tool names
+        Sorted list of unique tool names detected in the code
+
+    Example:
+        >>> code = "from biomni.tool import analyze_data\nimport pandas as pd"
+        >>> parse_tool_calls_from_code(code, module2api)
+        ['analyze_data', 'pandas']
     """
     tool_module_pairs = parse_tool_calls_with_modules(code, module2api, custom_functions)
     return sorted(list(set(pair[0] for pair in tool_module_pairs)))
 
 
 def parse_tool_calls_with_modules(code: str, module2api: dict, custom_functions: dict = None) -> list[tuple[str, str]]:
-    """Parse code to detect imported tools and their modules.
+    """Parse code to detect imported tools and their associated modules.
+
+    This function performs detailed analysis of Python code to identify which
+    tools/functions are being imported and which modules they belong to. It
+    handles various import patterns including direct imports, from-imports,
+    and module.function patterns.
 
     Args:
-        code: The Python code to parse
-        module2api: Dictionary mapping modules to their API tools
-        custom_functions: Dictionary of custom functions
+        code: The Python code string to analyze for tool imports
+        module2api: Dictionary mapping module names to their available API tools
+        custom_functions: Optional dictionary of custom functions that have been
+                         added to the agent
 
     Returns:
-        List of tuples (tool_name, module_name)
+        List of tuples containing (tool_name, module_name) pairs for each
+        detected tool and its associated module
+
+    Note:
+        The function uses regex patterns to match various import statement
+        formats and also detects direct function calls without explicit imports.
     """
     import re
 
@@ -1159,14 +1250,24 @@ def parse_tool_calls_with_modules(code: str, module2api: dict, custom_functions:
 
 
 def find_best_module_match(target_module: str, available_modules: list[str]) -> str:
-    """Find the best matching module from available modules.
+    """Find the best matching module from a list of available modules.
+
+    This function attempts to match a target module name against a list of
+    available modules using various matching strategies: exact match, partial
+    substring matches, and fallback to the first available module.
 
     Args:
-        target_module: The module name we're looking for
-        available_modules: List of available module names
+        target_module: The module name we're trying to match
+        available_modules: List of available module names to search through
 
     Returns:
-        The best matching module name
+        The best matching module name from the available modules list.
+        Returns "unknown" if no modules are available.
+
+    Note:
+        The matching strategy prioritizes exact matches, then partial matches
+        (where either the target is contained in the module name or vice versa),
+        and finally falls back to the first available module.
     """
     # First try exact match
     if target_module in available_modules:
@@ -1183,7 +1284,19 @@ def find_best_module_match(target_module: str, available_modules: list[str]) -> 
 
 def inject_custom_functions_to_repl(custom_functions: dict):
     """Inject custom functions into the Python REPL execution environment.
-    This makes custom tools available during code execution.
+
+    This function makes custom tools available during code execution by injecting
+    them into both the persistent execution namespace and the builtins module.
+    This allows the agent to call custom functions that users have added via
+    agent.add_tool() when executing Python code in <execute> blocks.
+
+    Args:
+        custom_functions: Dictionary mapping function names to their callable objects
+
+    Note:
+        The function modifies both the persistent namespace used by run_python_repl
+        and the builtins module to ensure maximum compatibility and accessibility
+        of custom functions during code execution.
     """
     if custom_functions:
         # Access the persistent namespace used by run_python_repl
@@ -1202,14 +1315,24 @@ def inject_custom_functions_to_repl(custom_functions: dict):
 
 
 def format_execute_tags_in_content(content: str, parse_tool_calls_with_modules_func) -> str:
-    """Format execute tags in content by extracting code and formatting as proper code blocks with tool call highlighting.
+    """Format execute tags in content by extracting code and creating highlighted tool call blocks.
+
+    This function processes content that contains <execute>...</execute> tags and
+    converts them into styled HTML blocks that display the code with syntax highlighting
+    and information about which tools are being used.
 
     Args:
         content: The content string that may contain <execute> tags
         parse_tool_calls_with_modules_func: Function to parse tool calls with modules
+                                          (typically parse_tool_calls_with_modules)
 
     Returns:
-        Formatted content with execute tags converted to highlighted tool call blocks
+        Formatted content with execute tags converted to highlighted tool call blocks.
+        Also processes <solution> tags in the same pass.
+
+    Note:
+        The function also calls format_solution_tags_in_content() to handle
+        solution tags in the same processing pass.
     """
     import re
 
@@ -1238,7 +1361,26 @@ def format_execute_tags_in_content(content: str, parse_tool_calls_with_modules_f
 
 
 def detect_code_language_and_tool(code_content: str) -> tuple[str, str]:
-    """Detect the programming language and tool name from code content."""
+    """Detect the programming language and tool name from code content.
+
+    This function analyzes code content to determine the programming language
+    and appropriate tool name based on language markers at the beginning of
+    the code block.
+
+    Args:
+        code_content: The code content to analyze for language markers
+
+    Returns:
+        Tuple containing (language, tool_name) where:
+        - language: The detected programming language ("python", "r", "bash")
+        - tool_name: The human-readable tool name for display
+
+    Example:
+        >>> detect_code_language_and_tool("#!R\nlibrary(ggplot2)")
+        ("r", "R REPL")
+        >>> detect_code_language_and_tool("#!BASH\necho 'hello'")
+        ("bash", "Bash Script")
+    """
     if code_content.startswith("#!R") or code_content.startswith("# R code") or code_content.startswith("# R script"):
         return "r", "R REPL"
     elif code_content.startswith("#!BASH") or code_content.startswith("# Bash script"):
@@ -1250,7 +1392,25 @@ def detect_code_language_and_tool(code_content: str) -> tuple[str, str]:
 
 
 def clean_code_content(code_content: str, language: str) -> str:
-    """Clean code content by removing language markers."""
+    """Clean code content by removing language markers.
+
+    This function removes language-specific markers from the beginning of code
+    content to prepare it for display in code blocks. The markers are used
+    internally for language detection but should not appear in the final output.
+
+    Args:
+        code_content: The raw code content that may contain language markers
+        language: The detected programming language ("python", "r", "bash")
+
+    Returns:
+        Cleaned code content with language markers removed
+
+    Example:
+        >>> clean_code_content("#!R\nlibrary(ggplot2)", "r")
+        "library(ggplot2)"
+        >>> clean_code_content("#!BASH\necho 'hello'", "bash")
+        "echo 'hello'"
+    """
     import re
 
     if language == "r":
@@ -1264,7 +1424,25 @@ def clean_code_content(code_content: str, language: str) -> str:
 
 
 def create_tool_call_block(code_content: str, language: str, tool_name: str, detected_tool_modules: list) -> str:
-    """Create the HTML block for tool call highlighting."""
+    """Create the HTML block for tool call highlighting.
+
+    This function generates a styled HTML block that displays code execution
+    information including the code itself, syntax highlighting, and a list of
+    tools that were used during execution.
+
+    Args:
+        code_content: The cleaned code content to display
+        language: The programming language for syntax highlighting
+        tool_name: The default tool name to display if no specific tools detected
+        detected_tool_modules: List of (tool_name, module_name) tuples for tools used
+
+    Returns:
+        HTML string containing a styled tool call block with code and tool information
+
+    Note:
+        The HTML uses CSS classes defined in get_pdf_css_content() for styling.
+        If no specific tools are detected, it falls back to a default tool name.
+    """
     # Create the formatted block with code and tools used
     formatted_block = f"""<div class="tool-call-highlight">
 <div class="tool-call-header">
@@ -1291,7 +1469,22 @@ def create_tool_call_block(code_content: str, language: str, tool_name: str, det
 
 
 def format_detected_tools(detected_tool_modules: list) -> str:
-    """Format detected tools with their modules."""
+    """Format detected tools with their modules for display.
+
+    This function takes a list of (tool_name, module_name) tuples and formats
+    them into a human-readable string for display in the tool call blocks.
+    It handles special cases for common tools and formats module names appropriately.
+
+    Args:
+        detected_tool_modules: List of (tool_name, module_name) tuples
+
+    Returns:
+        Comma-separated string of formatted tool descriptions
+
+    Example:
+        >>> format_detected_tools([("analyze_data", "biomni.tool"), ("pandas", "pandas")])
+        "biomni → analyze_data, pandas → pandas"
+    """
     tool_descriptions = []
     for tool_name, module_name in detected_tool_modules:
         if tool_name == "python_repl":
@@ -1309,7 +1502,23 @@ def format_detected_tools(detected_tool_modules: list) -> str:
 
 
 def format_default_tool_name(language: str, tool_name: str) -> str:
-    """Format default tool name based on language."""
+    """Format default tool name based on programming language.
+
+    This function generates HTML for displaying the default tool name when
+    no specific tools are detected in the code. It maps programming languages
+    to their appropriate default tool names.
+
+    Args:
+        language: The programming language ("python", "r", "bash")
+        tool_name: The detected tool name (used for bash CLI vs script distinction)
+
+    Returns:
+        HTML string containing a styled tools-used section
+
+    Note:
+        For bash, it distinguishes between CLI commands and bash scripts
+        based on the tool_name parameter.
+    """
     if language == "r":
         return f"""
 <div class="tools-used">
@@ -1336,11 +1545,19 @@ def format_default_tool_name(language: str, tool_name: str) -> str:
 def format_solution_tags_in_content(content: str) -> str:
     """Format solution tags in content by extracting text and formatting as solution blocks.
 
+    This function processes content that contains <solution>...</solution> tags and
+    converts them into styled HTML blocks that display solution content with appropriate
+    formatting and CSS classes.
+
     Args:
         content: The content string that may contain <solution> tags
 
     Returns:
-        Formatted content with solution tags converted to solution blocks
+        Formatted content with solution tags converted to styled solution blocks
+
+    Note:
+        The solution blocks use the "title-text summary" CSS class for consistent
+        styling with other content blocks in the markdown output.
     """
     import re
 
@@ -1368,11 +1585,21 @@ def format_solution_tags_in_content(content: str) -> str:
 def format_observation_as_terminal(content: str) -> str | None:
     """Format observation content with terminal-like styling.
 
+    This function processes observation content from the agent's execution results
+    and formats it as a styled terminal block. It handles both text and image content,
+    with length limits to ensure the output fits within PDF page constraints.
+
     Args:
-        content: The observation content string
+        content: The observation content string, potentially containing <observation> tags
 
     Returns:
-        Formatted content with terminal styling, or None if observation is empty/invalid
+        Formatted HTML content with terminal styling, or None if observation is
+        empty, invalid, or contains only meaningless content
+
+    Note:
+        - Content is limited to 10,000 characters to fit within 2 A4 pages
+        - Handles both text and base64-encoded images
+        - Uses CSS classes for consistent styling with other content blocks
     """
     import re
 
@@ -1419,7 +1646,23 @@ def format_observation_as_terminal(content: str) -> str | None:
 
 
 def process_observation_with_images(observation_content: str) -> str:
-    """Process observation content that contains images."""
+    """Process observation content that contains both text and base64-encoded images.
+
+    This function handles observation content that includes both text output and
+    base64-encoded images (typically plots from data analysis). It separates the
+    text and image content and formats them appropriately for markdown display.
+
+    Args:
+        observation_content: The observation content containing both text and images
+
+    Returns:
+        HTML string containing formatted text (as terminal blocks) and images
+        (as markdown image tags)
+
+    Note:
+        The function uses "data:image/" as a delimiter to split content into
+        text and image parts, then processes each part separately.
+    """
     # Split content into text and image parts
     parts = observation_content.split("data:image/")
     text_parts = []
@@ -1464,7 +1707,26 @@ def process_observation_with_images(observation_content: str) -> str:
 
 
 def remove_emojis_from_text(text: str) -> str:
-    """Remove emojis from text for markdown/PDF output."""
+    """Remove emojis from text for markdown/PDF output.
+
+    This function removes common emojis used in the system prompt and configuration
+    display from text content before it's converted to markdown or PDF. This ensures
+    clean, professional output while preserving emojis in the console display.
+
+    Args:
+        text: The text content that may contain emojis
+
+    Returns:
+        Text content with emojis removed
+
+    Note:
+        The function targets specific emojis used in the Biomni system:
+        - 🔧 for tools
+        - 📊 for data
+        - ⚙️ for software
+        - 📋 for configuration
+        - 🤖 for agent
+    """
     import re
 
     # Remove common emojis used in the system prompt, this makes conversion simpler
@@ -1483,7 +1745,26 @@ def remove_emojis_from_text(text: str) -> str:
 
 
 def format_lists_in_text(text: str) -> str:
-    """Format numbered lists and bullet points in text to proper markdown format."""
+    """Format numbered lists and bullet points in text to proper markdown format.
+
+    This function processes text content to identify and format various types of lists,
+    including numbered lists with checkboxes, regular lists, and plan structures.
+    It also handles preprocessing tasks like removing bold formatting from plan titles
+    and removing emojis for clean PDF output.
+
+    Args:
+        text: The text content to process for list formatting
+
+    Returns:
+        Formatted text with properly structured lists and cleaned formatting
+
+    Note:
+        The function performs several preprocessing steps:
+        - Removes bold formatting from plan titles
+        - Removes emojis for PDF output
+        - Identifies and formats checkbox lists
+        - Processes regular text blocks
+    """
     import re
 
     # Preprocess to remove bold formatting from plan titles
@@ -1513,7 +1794,24 @@ def format_lists_in_text(text: str) -> str:
 
 
 def identify_list_blocks(lines: list) -> list[tuple[str, bool]]:
-    """Identify blocks of text that contain lists."""
+    """Identify blocks of text that contain lists.
+
+    This function analyzes a list of text lines to identify contiguous blocks
+    that contain numbered lists with checkboxes. It groups lines into blocks
+    and marks whether each block contains a checkbox list or regular text.
+
+    Args:
+        lines: List of text lines to analyze
+
+    Returns:
+        List of tuples containing (block_text, is_checkbox_list) where:
+        - block_text: The text content of the block
+        - is_checkbox_list: True if the block contains numbered items with checkboxes
+
+    Note:
+        The function looks for patterns like "1. [ ]", "2. [✓]", "3. [✗]" to
+        identify checkbox sequences and groups them into separate blocks.
+    """
     import re
 
     list_blocks = []
@@ -1554,7 +1852,23 @@ def identify_list_blocks(lines: list) -> list[tuple[str, bool]]:
 
 
 def format_single_list(text: str) -> str:
-    """Format a single list block."""
+    """Format a single list block with checkboxes and plan titles.
+
+    This function processes a text block that may contain numbered lists with
+    checkboxes and plan titles. It converts checkbox symbols to HTML list items
+    and wraps the content in a styled container with appropriate CSS classes.
+
+    Args:
+        text: The text block to format, potentially containing numbered lists
+
+    Returns:
+        HTML string containing either a formatted list with plan title or
+        regular text if no list items are found
+
+    Note:
+        The function recognizes plan titles like "Plan", "Updated Plan", "Completed Plan"
+        and converts checkbox symbols (✓, ✗) to HTML format ([x], [ ]).
+    """
     import re
 
     lines = text.split("\n")
@@ -1607,7 +1921,24 @@ def format_single_list(text: str) -> str:
 
 
 def convert_markdown_to_pdf(markdown_path: str, pdf_path: str) -> None:
-    """Convert markdown file to PDF using weasyprint or markdown2pdf."""
+    """Convert markdown file to PDF using weasyprint or fallback libraries.
+
+    This function converts a markdown file to PDF format using multiple fallback
+    strategies. It prioritizes weasyprint for better layout control, then falls back
+    to markdown2pdf and finally pandoc if the preferred libraries are not available.
+
+    Args:
+        markdown_path: Path to the input markdown file
+        pdf_path: Path where the output PDF file should be saved
+
+    Raises:
+        ImportError: If no PDF conversion library is available
+        Exception: If PDF conversion fails for any other reason
+
+    Note:
+        The function uses minimal markdown extensions for better performance
+        and applies custom CSS styling for consistent formatting.
+    """
     try:
         # Try weasyprint first (better for complex layouts)
         import weasyprint
@@ -1675,7 +2006,25 @@ def convert_markdown_to_pdf(markdown_path: str, pdf_path: str) -> None:
 
 
 def get_pdf_css_content() -> str:
-    """Get the CSS content for PDF generation."""
+    """Get the CSS content for PDF generation.
+
+    This function returns a comprehensive CSS stylesheet designed specifically
+    for PDF generation from markdown content. It includes styling for all
+    HTML elements that may appear in the converted markdown, with optimized
+    typography, spacing, and layout for print media.
+
+    Returns:
+        CSS string containing all styles needed for PDF generation
+
+    Note:
+        The CSS includes styles for:
+        - Typography and font families
+        - Headings and text formatting
+        - Code blocks and syntax highlighting
+        - Tables and lists
+        - Custom classes for tool calls, observations, and plans
+        - Print-optimized spacing and layout
+    """
     return """
     body {
         font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', 'Twemoji', 'EmojiOne Color', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
