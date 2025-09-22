@@ -1760,6 +1760,18 @@ Each library is listed with its description to help you understand its functiona
         Returns:
             List of detected tool names
         """
+        tool_module_pairs = self._parse_tool_calls_with_modules(code)
+        return sorted(list(set(pair[0] for pair in tool_module_pairs)))
+
+    def _parse_tool_calls_with_modules(self, code: str) -> list[tuple[str, str]]:
+        """Parse code to detect imported tools and their modules.
+
+        Args:
+            code: The Python code to parse
+
+        Returns:
+            List of tuples (tool_name, module_name)
+        """
         import re
 
         detected_tools = set()
@@ -1799,14 +1811,17 @@ Each library is listed with its description to help you understand its functiona
                     for tool in tools:
                         # Check if this tool exists in any module
                         if tool in all_tools:
-                            detected_tools.add(tool)
+                            # Find the best matching module
+                            best_module = self._find_best_module_match(module_name, all_tools[tool])
+                            detected_tools.add((tool, best_module))
                         # Also check if it's a module.function pattern
                         elif "." in tool:
                             parts = tool.split(".")
                             if len(parts) == 2:
                                 module_part, func_part = parts
                                 if func_part in all_tools:
-                                    detected_tools.add(func_part)
+                                    best_module = self._find_best_module_match(module_part, all_tools[func_part])
+                                    detected_tools.add((func_part, best_module))
 
                 elif len(match) == 1:  # import module
                     module_name = match[0]
@@ -1815,7 +1830,8 @@ Each library is listed with its description to help you understand its functiona
                         if any(module_name in mod for mod in modules):
                             # Look for usage of this tool in the code
                             if re.search(rf"\b{tool_name}\s*\(", code):
-                                detected_tools.add(tool_name)
+                                best_module = self._find_best_module_match(module_name, modules)
+                                detected_tools.add((tool_name, best_module))
 
         # Also look for direct function calls without imports
         function_call_pattern = r"(\w+)\s*\("
@@ -1823,9 +1839,33 @@ Each library is listed with its description to help you understand its functiona
 
         for func_call in function_calls:
             if func_call in all_tools:
-                detected_tools.add(func_call)
+                # For direct calls, use the first available module
+                best_module = all_tools[func_call][0]
+                detected_tools.add((func_call, best_module))
 
         return sorted(list(detected_tools))
+
+    def _find_best_module_match(self, target_module: str, available_modules: list[str]) -> str:
+        """Find the best matching module from available modules.
+
+        Args:
+            target_module: The module name we're looking for
+            available_modules: List of available module names
+
+        Returns:
+            The best matching module name
+        """
+        # First try exact match
+        if target_module in available_modules:
+            return target_module
+
+        # Try partial matches
+        for module in available_modules:
+            if target_module in module or module in target_module:
+                return module
+
+        # Return the first available module as fallback
+        return available_modules[0] if available_modules else "unknown"
 
     def _inject_custom_functions_to_repl(self):
         """Inject custom functions into the Python REPL execution environment.
@@ -1947,8 +1987,25 @@ Each library is listed with its description to help you understand its functiona
         if save_pdf:
             pdf_path = filepath if filepath.endswith(".pdf") else f"{filepath}.pdf"
             try:
-                self._convert_markdown_to_pdf(markdown_path, pdf_path)
-                print(f"Conversation history also saved as PDF: {pdf_path}")
+                # Add timeout for PDF generation to prevent hanging
+                import signal
+
+                def timeout_handler(signum, frame):
+                    raise TimeoutError("PDF generation timed out")
+
+                # Set timeout to 60 seconds
+                signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(60)
+
+                try:
+                    self._convert_markdown_to_pdf(markdown_path, pdf_path)
+                    print(f"Conversation history also saved as PDF: {pdf_path}")
+                finally:
+                    signal.alarm(0)  # Cancel the alarm
+
+            except TimeoutError:
+                print("Warning: PDF generation timed out after 60 seconds")
+                print("Markdown file saved successfully, but PDF conversion timed out")
             except Exception as e:
                 print(f"Warning: Could not convert to PDF: {e}")
                 print("Markdown file saved successfully, but PDF conversion failed")
@@ -2005,7 +2062,6 @@ Each library is listed with its description to help you understand its functiona
                         formatted_observation = self._format_observation_as_terminal(clean_output)
                         # Only add observation if it's not empty or invalid
                         if formatted_observation is not None:
-                            content += '<h4 class="observation-header">Observation</h4>\n\n'
                             content += f"{formatted_observation}\n\n"
                     else:
                         step_number += 1
@@ -2038,7 +2094,7 @@ Each library is listed with its description to help you understand its functiona
                                 if include_images and matching_execution.get("images"):
                                     for plot_data in matching_execution["images"]:
                                         if plot_data not in added_plots:
-                                            content += f"```plot\n{plot_data}\n```\n\n"
+                                            content += f"![Plot]({plot_data})\n\n"
                                             added_plots.add(plot_data)
                         else:
                             # Process the AI message to extract and format execute tags
@@ -2075,7 +2131,6 @@ Each library is listed with its description to help you understand its functiona
                         formatted_observation = self._format_observation_as_terminal(clean_output)
                         # Only add observation if it's not empty or invalid
                         if formatted_observation is not None:
-                            content += '<h4 class="observation-header">Observation</h4>\n\n'
                             content += f"{formatted_observation}\n\n"
                     else:
                         step_number += 1
@@ -2108,7 +2163,7 @@ Each library is listed with its description to help you understand its functiona
                                 if include_images and matching_execution.get("images"):
                                     for plot_data in matching_execution["images"]:
                                         if plot_data not in added_plots:
-                                            content += f"```plot\n{plot_data}\n```\n\n"
+                                            content += f"![Plot]({plot_data})\n\n"
                                             added_plots.add(plot_data)
                         else:
                             # Process the AI message to extract and format execute tags
@@ -2167,8 +2222,8 @@ Each library is listed with its description to help you understand its functiona
                 cli_code = re.sub(r"^#!CLI", "", code_content, 1).strip()
                 code_content = cli_code
 
-            # Parse tools from the code content
-            detected_tools = self._parse_tool_calls_from_code(code_content)
+            # Parse tools from the code content with module information
+            detected_tool_modules = self._parse_tool_calls_with_modules(code_content)
 
             # Create the formatted block with code and tools used
             formatted_block = f"""<div class="tool-call-highlight">
@@ -2176,28 +2231,29 @@ Each library is listed with its description to help you understand its functiona
 <strong>Code Execution</strong>
 </div>
 <div class="tool-call-input">
-<strong>Code:</strong>
 ```{language}
 {code_content}
 ```
 </div>"""
 
             # Add tools used section
-            if detected_tools:
-                # Clean up tool names for display
-                unique_tools = set()
-                for tool in detected_tools:
-                    if tool == "python_repl":
-                        unique_tools.add("Python REPL")
-                    elif tool == "r_repl":
-                        unique_tools.add("R REPL")
-                    elif "bash" in tool.lower():
-                        unique_tools.add("Bash Script")
+            if detected_tool_modules:
+                # Format tools with their modules
+                tool_descriptions = []
+                for tool_name, module_name in detected_tool_modules:
+                    if tool_name == "python_repl":
+                        tool_descriptions.append("Python REPL")
+                    elif tool_name == "r_repl":
+                        tool_descriptions.append("R REPL")
+                    elif "bash" in tool_name.lower():
+                        tool_descriptions.append("Bash Script")
                     else:
-                        unique_tools.add(tool)
+                        # Extract the last part of the module name for display
+                        display_module = module_name.split(".")[-1] if "." in module_name else module_name
+                        tool_descriptions.append(f"{display_module} → {tool_name}")
 
-                if unique_tools:
-                    tools_list = ", ".join(sorted(unique_tools))
+                if tool_descriptions:
+                    tools_list = ", ".join(sorted(tool_descriptions))
                     formatted_block += f"""
 <div class="tools-used">
 <strong>Tools Used:</strong> {tools_list}
@@ -2255,7 +2311,15 @@ Each library is listed with its description to help you understand its functiona
 
         def replace_solution_tag(match):
             solution_content = match.group(1).strip()
-            return f"#### Summary and Solution\n\n```solution\n{solution_content}\n```"
+            # Format as regular text, not terminal
+            return f"""<div class="title-text summary">
+<div class="title-text-header">
+<strong>Summary and Solution</strong>
+</div>
+<div class="title-text-content">
+{solution_content}
+</div>
+</div>"""
 
         # Replace all solution tags with formatted solution blocks
         formatted_content = re.sub(solution_pattern, replace_solution_tag, content, flags=re.DOTALL)
@@ -2273,6 +2337,9 @@ Each library is listed with its description to help you understand its functiona
         """
         import re
 
+        # Character limit for 2 A4 pages (approximately 10,000 characters)
+        MAX_OBSERVATION_LENGTH = 10000
+
         # Remove the <observation> tags and extract the content
         observation_pattern = r"<observation>(.*?)</observation>"
         observation_match = re.search(observation_pattern, content, re.DOTALL)
@@ -2288,17 +2355,147 @@ Each library is listed with its description to help you understand its functiona
             if observation_content in ["", "None", "null", "undefined"]:
                 return None
 
+            # Check if observation is too long for 2 pages
+            if len(observation_content) > MAX_OBSERVATION_LENGTH:
+                # Crop the content and add truncation notice
+                cropped_content = observation_content[:MAX_OBSERVATION_LENGTH]
+                truncation_notice = f"\n\n[Output truncated - content was too long to display here ({len(observation_content)} characters total)]"
+                observation_content = cropped_content + truncation_notice
+
             # Check if it contains plot data (base64 images)
             if "data:image/" in observation_content:
-                # Format plot in its own styled box
-                return f"```plot\n{observation_content}\n```"
+                # Split content into text and image parts
+                parts = observation_content.split("data:image/")
+                text_parts = []
+                image_parts = []
+
+                for i, part in enumerate(parts):
+                    if i == 0:
+                        # First part is text only
+                        if part.strip():
+                            text_parts.append(part.strip())
+                    else:
+                        # Find the end of the base64 data
+                        # Look for common delimiters that might end the base64 data
+                        end_markers = ["\n", "\r", " ", "\t", ">", "<", "]", ")", "}"]
+                        image_end = len(part)
+                        for marker in end_markers:
+                            marker_pos = part.find(marker)
+                            if marker_pos != -1 and marker_pos < image_end:
+                                image_end = marker_pos
+
+                        # Extract image data
+                        image_data = "data:image/" + part[:image_end]
+                        image_parts.append(image_data)
+
+                        # Extract remaining text
+                        remaining_text = part[image_end:].strip()
+                        if remaining_text:
+                            text_parts.append(remaining_text)
+
+                # Build the content
+                content_html = ""
+                if text_parts:
+                    # Add text content as terminal output
+                    text_content = "\n".join(text_parts)
+                    content_html += f"```terminal\n{text_content}\n```\n\n"
+
+                if image_parts:
+                    # Add image content
+                    for image_data in image_parts:
+                        content_html += f"![Plot]({image_data})\n\n"
+
+                return f"""<div class="title-text observation">
+<div class="title-text-header">
+<strong>Observation</strong>
+</div>
+<div class="title-text-content">
+{content_html}
+</div>
+</div>"""
             else:
                 # Regular text output - format as terminal output
-                return f"```terminal\n{observation_content}\n```"
+                return f"""<div class="title-text observation">
+<div class="title-text-header">
+<strong>Observation</strong>
+</div>
+<div class="title-text-content">
+```terminal
+{observation_content}
+```
+</div>
+</div>"""
         else:
             # Fallback if no observation tags found - check if content is meaningful
             if content.strip() and content.strip() not in ["", "None", "null", "undefined"]:
-                return f"```terminal\n{content}\n```"
+                # Check if content is too long
+                if len(content) > MAX_OBSERVATION_LENGTH:
+                    cropped_content = content[:MAX_OBSERVATION_LENGTH]
+                    truncation_notice = f"\n\n[Output truncated - content was too long to display here ({len(content)} characters total)]"
+                    content = cropped_content + truncation_notice
+
+                # Check if it contains plot data (base64 images) in fallback case too
+                if "data:image/" in content:
+                    # Split content into text and image parts
+                    parts = content.split("data:image/")
+                    text_parts = []
+                    image_parts = []
+
+                    for i, part in enumerate(parts):
+                        if i == 0:
+                            # First part is text only
+                            if part.strip():
+                                text_parts.append(part.strip())
+                        else:
+                            # Find the end of the base64 data
+                            end_markers = ["\n", "\r", " ", "\t", ">", "<", "]", ")", "}"]
+                            image_end = len(part)
+                            for marker in end_markers:
+                                marker_pos = part.find(marker)
+                                if marker_pos != -1 and marker_pos < image_end:
+                                    image_end = marker_pos
+
+                            # Extract image data
+                            image_data = "data:image/" + part[:image_end]
+                            image_parts.append(image_data)
+
+                            # Extract remaining text
+                            remaining_text = part[image_end:].strip()
+                            if remaining_text:
+                                text_parts.append(remaining_text)
+
+                    # Build the content
+                    content_html = ""
+                    if text_parts:
+                        # Add text content as terminal output
+                        text_content = "\n".join(text_parts)
+                        content_html += f"```terminal\n{text_content}\n```\n\n"
+
+                    if image_parts:
+                        # Add image content
+                        for image_data in image_parts:
+                            content_html += f"![Plot]({image_data})\n\n"
+
+                    return f"""<div class="title-text observation">
+<div class="title-text-header">
+<strong>Observation</strong>
+</div>
+<div class="title-text-content">
+{content_html}
+</div>
+</div>"""
+                else:
+                    # Regular text output - format as terminal output
+                    return f"""<div class="title-text observation">
+<div class="title-text-header">
+<strong>Observation</strong>
+</div>
+<div class="title-text-content">
+```terminal
+{content}
+```
+</div>
+</div>"""
             else:
                 return None
 
@@ -2306,42 +2503,101 @@ Each library is listed with its description to help you understand its functiona
         """Format numbered lists and bullet points in text to proper markdown format."""
         import re
 
-        # Split text into lines
+        # First, let's detect if there are multiple consecutive numbered items
         lines = text.split("\n")
-        formatted_lines = []
+
+        # Look for patterns of consecutive numbered lists with checkboxes
+        list_blocks = []
+        current_block = []
+        in_checkbox_sequence = False
+
+        for i, line in enumerate(lines):
+            line_stripped = line.strip()
+
+            # Check if this line starts a numbered item with checkbox
+            if re.match(r"^\d+\.\s*\[[ ✓✗]\]", line_stripped):
+                if not in_checkbox_sequence:
+                    # Start of a new checkbox sequence
+                    if current_block:
+                        list_blocks.append(("\n".join(current_block), False))
+                    current_block = [line]
+                    in_checkbox_sequence = True
+                else:
+                    # Continue the sequence
+                    current_block.append(line)
+            else:
+                if in_checkbox_sequence:
+                    # End of checkbox sequence
+                    if current_block:
+                        list_blocks.append(("\n".join(current_block), True))
+                    current_block = []
+                    in_checkbox_sequence = False
+                current_block.append(line)
+
+        # Handle the last block
+        if current_block:
+            if in_checkbox_sequence:
+                list_blocks.append(("\n".join(current_block), True))
+            else:
+                list_blocks.append(("\n".join(current_block), False))
+
+        # Process each block
+        result_blocks = []
+        for block_text, is_checkbox_list in list_blocks:
+            if is_checkbox_list:
+                # Process as a single checkbox list
+                result_blocks.append(self._format_single_list(block_text))
+            else:
+                # Process as regular text
+                result_blocks.append(block_text)
+
+        return "\n".join(result_blocks)
+
+    def _format_single_list(self, text: str) -> str:
+        """Format a single list block."""
+        import re
+
+        lines = text.split("\n")
+        list_items = []
+        has_list_items = False
 
         for line in lines:
             line = line.strip()
             if not line:
-                formatted_lines.append("")
                 continue
 
             # Check for numbered lists with checkboxes (1. [ ] or 1. [✓] or 1. [✗])
             if re.match(r"^\d+\.\s*\[[ ✓✗]\]", line):
+                has_list_items = True
                 # Extract the content after the checkbox
                 content = re.sub(r"^\d+\.\s*\[[ ✓✗]\]\s*", "", line)
 
                 # Replace checkbox symbols with text format
                 if "[✓]" in line:
-                    formatted_lines.append(f"- [x] {content}")
+                    list_items.append(f"<li><strong>[x]</strong> {content}</li>")
                 elif "[✗]" in line:
-                    formatted_lines.append(f"- [ ] {content}")
+                    list_items.append(f"<li><strong>[ ]</strong> {content}</li>")
                 else:
-                    formatted_lines.append(f"- [ ] {content}")
-            # Check for regular numbered lists - convert to bullet points
-            elif re.match(r"^\d+\.\s+", line):
-                # This is a numbered list item - convert to bullet point
-                content = re.sub(r"^\d+\.\s+", "", line)
-                formatted_lines.append(f"- {content}")
-            # Check for bullet points
-            elif re.match(r"^[-*]\s+", line):
-                # This is already a bullet point
-                content = re.sub(r"^[-*]\s+", "", line)
-                formatted_lines.append(f"- {content}")
+                    list_items.append(f"<li><strong>[ ]</strong> {content}</li>")
             else:
-                formatted_lines.append(line)
+                # Regular text - add as is (don't convert to list items)
+                list_items.append(line)
 
-        return "\n".join(formatted_lines)
+        if has_list_items and list_items:
+            # This is a list - return with container div
+            return f"""<div class="title-text plan">
+<div class="title-text-header">
+<strong>Plan</strong>
+</div>
+<div class="title-text-content">
+<ul>
+{chr(10).join(list_items)}
+</ul>
+</div>
+</div>"""
+        else:
+            # Regular text
+            return "\n".join(list_items)
 
     def _convert_markdown_to_pdf(self, markdown_path: str, pdf_path: str) -> None:
         """Convert markdown file to PDF using weasyprint or markdown2pdf."""
@@ -2359,10 +2615,14 @@ Each library is listed with its description to help you understand its functiona
             with open(markdown_path, "r", encoding="utf-8") as f:
                 markdown_content = f.read()
 
-            # Convert markdown to HTML
+            # Convert markdown to HTML with minimal extensions for better performance
             import markdown
 
-            html_content = markdown.markdown(markdown_content, extensions=["codehilite", "fenced_code"])
+            # Use minimal extensions to improve performance
+            html_content = markdown.markdown(
+                markdown_content,
+                extensions=["fenced_code"],  # Removed codehilite for better performance
+            )
 
             # Add CSS styling
             css_content = """
@@ -2444,20 +2704,19 @@ Each library is listed with its description to help you understand its functiona
             }
             /* Terminal-specific styling for observations */
             pre code.language-terminal {
-                background-color: #ffeaea;
-                color: #d32f2f;
+                background-color: transparent;
+                color: #333;
                 font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
                 font-size: 7pt;
                 line-height: 1.3;
-                border: 1px solid #ffcdd2;
-                border-radius: 3px;
+                border: none;
+                border-radius: 0;
             }
             pre.language-terminal {
-                background-color: #ffeaea;
-                border-left: 3px solid #f44336;
-                color: #d32f2f;
-                border: 1px solid #ffcdd2;
-                border-radius: 3px;
+                background-color: transparent;
+                border: none;
+                color: #333;
+                border-radius: 0;
             }
             /* Observation header styling */
             h4.observation-header {
@@ -2477,46 +2736,20 @@ Each library is listed with its description to help you understand its functiona
             }
             /* Solution-specific styling */
             pre code.language-solution {
-                background-color: #e8f5e8;
-                color: #1b5e20;
+                background-color: #f8f9fa;
+                color: #333;
                 font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
                 font-size: 8pt;
                 line-height: 1.4;
-                border: 1px solid #4caf50;
+                border: 1px solid #e9ecef;
                 border-radius: 3px;
             }
             pre.language-solution {
-                background-color: #e8f5e8;
-                border-left: 3px solid #4caf50;
-                color: #1b5e20;
-                border: 1px solid #4caf50;
+                background-color: #f8f9fa;
+                border-left: 3px solid #6c757d;
+                color: #333;
+                border: 1px solid #e9ecef;
                 border-radius: 3px;
-            }
-            /* Plot-specific styling */
-            pre code.language-plot {
-                background-color: #fff3e0;
-                color: #e65100;
-                font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-                font-size: 8pt;
-                line-height: 1.4;
-                border: 1px solid #ff9800;
-                border-radius: 3px;
-                text-align: center;
-            }
-            pre.language-plot {
-                background-color: #fff3e0;
-                border-left: 3px solid #ff9800;
-                color: #e65100;
-                border: 1px solid #ff9800;
-                border-radius: 3px;
-                text-align: center;
-                padding: 15px;
-            }
-            pre.language-plot img {
-                max-width: 100%;
-                height: auto;
-                border-radius: 3px;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             }
             blockquote {
                 border-left: 3px solid #bdc3c7;
@@ -2544,10 +2777,10 @@ Each library is listed with its description to help you understand its functiona
                 max-width: 100%;
                 height: auto;
                 display: block;
-                margin: 5px auto;
+                margin: 10px auto;
                 border: 1px solid #ddd;
                 border-radius: 3px;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             }
             .image-container {
                 text-align: center;
@@ -2630,6 +2863,141 @@ Each library is listed with its description to help you understand its functiona
                 font-size: 8pt;
                 font-style: italic;
             }
+            /* Title-text styling - unified for observations, plans, and solutions */
+            .title-text {
+                background-color: #f8f9fa;
+                border: 1px solid #e9ecef;
+                border-radius: 3px;
+                padding: 0;
+                margin: 10px 0;
+                overflow: hidden;
+            }
+            .title-text-header {
+                background-color: #e9ecef;
+                color: #495057;
+                padding: 8px 12px;
+                margin: 0;
+                font-weight: normal;
+                font-size: 9pt;
+                font-style: italic;
+                border-bottom: 1px solid #dee2e6;
+            }
+            .title-text-header strong {
+                color: #495057;
+                font-weight: normal;
+                font-size: 9pt;
+                font-style: italic;
+            }
+            .title-text-content {
+                background-color: #f8f9fa;
+                border: none;
+                border-radius: 0;
+                padding: 10px 12px;
+                margin: 0;
+                color: #333;
+                font-size: 8pt;
+                line-height: 1.4;
+            }
+            /* Plan-specific styling - soft blue pastel */
+            .title-text.plan {
+                background-color: #e3f2fd;
+                border-color: #bbdefb;
+            }
+            .title-text.plan .title-text-header {
+                background-color: #bbdefb;
+                color: #1976d2;
+            }
+            .title-text.plan .title-text-content {
+                background-color: #e3f2fd;
+            }
+            /* Code execution-specific styling - soft green pastel */
+            .tool-call-highlight {
+                background-color: #e8f5e8;
+                border-color: #c8e6c9;
+            }
+            .tool-call-header {
+                background-color: #c8e6c9;
+                color: #388e3c;
+            }
+            .tool-call-input {
+                background-color: #e8f5e8;
+            }
+            /* Observation-specific styling - soft purple pastel */
+            .title-text.observation {
+                background-color: #f3e5f5;
+                border-color: #e1bee7;
+            }
+            .title-text.observation .title-text-header {
+                background-color: #e1bee7;
+                color: #7b1fa2;
+            }
+            .title-text.observation .title-text-content {
+                background-color: #f3e5f5;
+            }
+            /* Summary and solution-specific styling - soft orange pastel, no overlay */
+            .title-text.summary {
+                background-color: #fff3e0;
+                border-color: #ffcc02;
+            }
+            .title-text.summary .title-text-header {
+                background-color: #ffcc02;
+                color: #f57c00;
+            }
+            .title-text.summary .title-text-content {
+                background-color: #fff3e0;
+            }
+            .title-text-content ul {
+                background-color: transparent;
+                border: none;
+                border-radius: 0;
+                padding: 0;
+                margin: 0;
+                color: #333;
+                font-size: 8pt;
+                line-height: 1.4;
+            }
+            .title-text-content li {
+                margin: 3px 0;
+                color: #333;
+            }
+            .title-text-content li strong {
+                color: #495057;
+                font-weight: normal;
+                font-size: 8pt;
+                font-style: italic;
+            }
+            .title-text-content li code {
+                background-color: #e9ecef;
+                color: #333;
+                padding: 1px 3px;
+                border-radius: 2px;
+                font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+                font-size: 7pt;
+            }
+            .title-text-content pre {
+                background-color: #f8f9fa;
+                border: 1px solid #e9ecef;
+                border-radius: 3px;
+                padding: 10px;
+                margin: 0;
+                font-size: 8pt;
+                line-height: 1.4;
+                overflow-x: auto;
+                white-space: pre-wrap;
+                word-wrap: break-word;
+            }
+            .title-text-content code {
+                background-color: transparent;
+                padding: 0;
+                border-radius: 0;
+                font-size: 8pt;
+                color: #2c3e50;
+            }
+            /* Remove any color highlighting from text */
+            .highlight, .highlight * {
+                color: #000000 !important;
+                background-color: transparent !important;
+            }
             """
 
             # Create HTML document
@@ -2647,8 +3015,10 @@ Each library is listed with its description to help you understand its functiona
             </html>
             """
 
-            # Convert to PDF
-            HTML(string=html_doc).write_pdf(pdf_path)
+            # Convert to PDF with performance optimizations
+            font_config = FontConfiguration()
+            html_obj = HTML(string=html_doc)
+            html_obj.write_pdf(pdf_path, font_config=font_config, optimize_images=True)
 
         except ImportError:
             # Fallback to markdown2pdf if weasyprint is not available
