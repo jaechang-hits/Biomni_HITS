@@ -1,6 +1,6 @@
-import sys
-import io
 import base64
+import io
+import sys
 from io import StringIO
 
 # Create a persistent namespace that will be shared across all executions
@@ -102,12 +102,14 @@ def _apply_matplotlib_patches():
 
         def savefig_with_capture(*args, **kwargs):
             """Enhanced savefig function that captures plots after saving them."""
+            # Get the filename from args if provided
+            filename = args[0] if args else kwargs.get("fname", "unknown")
             # Call the original savefig function
             result = original_savefig(*args, **kwargs)
             # Capture the plot after saving
             _capture_matplotlib_plots()
             # Print a message to indicate plot was saved
-            print(f"Plot saved to: {result}")
+            print(f"Plot saved to: {filename}")
             return result
 
         # Replace functions with enhanced versions
