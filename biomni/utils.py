@@ -684,11 +684,7 @@ class PromptLogger(BaseCallbackHandler):
 
 class NodeLogger(BaseCallbackHandler):
     def on_llm_end(self, response, **kwargs):  # response of type LLMResult
-        for (
-            generations
-        ) in (
-            response.generations
-        ):  # response.generations of type List[List[Generations]] becuase "each input could have multiple candidate generations"
+        for generations in response.generations:  # response.generations of type List[List[Generations]] becuase "each input could have multiple candidate generations"
             for generation in generations:
                 generated_text = generation.message.content
                 # token_usage = generation.message.response_metadata["token_usage"]
@@ -1058,8 +1054,7 @@ def should_skip_message(clean_output: str) -> bool:
         important feedback to users about conversation flow issues.
     """
     return (
-        clean_output.strip()
-        in ["", "None", "null", "undefined"]
+        clean_output.strip() in ["", "None", "null", "undefined"]
         # Don't skip parsing error messages - they should be displayed and increment step counter
         # or "There are no tags" in clean_output
         # or "Execution terminated due to repeated parsing errors" in clean_output
@@ -1151,7 +1146,7 @@ def parse_tool_calls_from_code(code: str, module2api: dict, custom_functions: di
         ['analyze_data', 'pandas']
     """
     tool_module_pairs = parse_tool_calls_with_modules(code, module2api, custom_functions)
-    return sorted(list(set(pair[0] for pair in tool_module_pairs)))
+    return sorted({pair[0] for pair in tool_module_pairs})
 
 
 def parse_tool_calls_with_modules(code: str, module2api: dict, custom_functions: dict = None) -> list[tuple[str, str]]:
@@ -1246,7 +1241,7 @@ def parse_tool_calls_with_modules(code: str, module2api: dict, custom_functions:
             best_module = all_tools[func_call][0]
             detected_tools.add((func_call, best_module))
 
-    return sorted(list(detected_tools))
+    return sorted(detected_tools)
 
 
 def find_best_module_match(target_module: str, available_modules: list[str]) -> str:
@@ -1520,23 +1515,23 @@ def format_default_tool_name(language: str, tool_name: str) -> str:
         based on the tool_name parameter.
     """
     if language == "r":
-        return f"""
+        return """
 <div class="tools-used">
 <strong>Tools Used:</strong> R REPL
 </div>"""
     elif language == "bash":
         if tool_name == "CLI Command":
-            return f"""
+            return """
 <div class="tools-used">
 <strong>Tools Used:</strong> CLI Command
 </div>"""
         else:
-            return f"""
+            return """
 <div class="tools-used">
 <strong>Tools Used:</strong> Bash Script
 </div>"""
     else:
-        return f"""
+        return """
 <div class="tools-used">
 <strong>Tools Used:</strong> Python REPL
 </div>"""
@@ -1941,16 +1936,17 @@ def convert_markdown_to_pdf(markdown_path: str, pdf_path: str) -> None:
     """
     try:
         # Try weasyprint first (better for complex layouts)
-        import weasyprint
-        from weasyprint import HTML, CSS
-        from weasyprint.text.fonts import FontConfiguration
         import base64
-        import re
         import os
+        import re
         from datetime import datetime
 
+        import weasyprint
+        from weasyprint import CSS, HTML
+        from weasyprint.text.fonts import FontConfiguration
+
         # Read markdown content
-        with open(markdown_path, "r", encoding="utf-8") as f:
+        with open(markdown_path, encoding="utf-8") as f:
             markdown_content = f.read()
 
         # Convert markdown to HTML with minimal extensions for better performance

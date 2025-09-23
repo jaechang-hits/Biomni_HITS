@@ -29,9 +29,7 @@ from biomni.utils import (
     format_execute_tags_in_content,
     format_lists_in_text,
     format_observation_as_terminal,
-    format_solution_tags_in_content,
     function_to_api_schema,
-    get_pdf_css_content,
     has_execution_results,
     inject_custom_functions_to_repl,
     parse_tool_calls_from_code,
@@ -1885,9 +1883,6 @@ Each library is listed with its description to help you understand its functiona
         """
         import os
         import tempfile
-        import base64
-        from datetime import datetime
-        import re
 
         if not save_pdf:
             print("PDF saving is disabled. No file will be saved.")

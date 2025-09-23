@@ -1,6 +1,6 @@
-import sys
-import io
 import base64
+import io
+import sys
 from io import StringIO
 
 # Create a persistent namespace that will be shared across all executions
