@@ -156,7 +156,6 @@ description = [
             },
         ],
     },
-    
     # Image registration functions
     {
         "description": "Perform rigid image registration between two medical images using SimpleITK. "
