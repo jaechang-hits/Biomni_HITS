@@ -29,9 +29,7 @@ from biomni.utils import (
     format_execute_tags_in_content,
     format_lists_in_text,
     format_observation_as_terminal,
-    format_solution_tags_in_content,
     function_to_api_schema,
-    get_pdf_css_content,
     has_execution_results,
     inject_custom_functions_to_repl,
     parse_tool_calls_from_code,
@@ -1336,7 +1334,7 @@ Each library is listed with its description to help you understand its functiona
                     or code.strip().startswith("# R script")
                 ):
                     # Remove the R marker and run as R code
-                    r_code = re.sub(r"^#!R|^# R code|^# R script", "", code, 1).strip()  # noqa: B034
+                    r_code = re.sub(r"^#!R|^# R code|^# R script", "", code, count=1).strip()
                     result = run_with_timeout(run_r_code, [r_code], timeout=timeout)
                 # Check if the code is a Bash script or CLI command
                 elif (
@@ -1347,13 +1345,13 @@ Each library is listed with its description to help you understand its functiona
                     # Handle both Bash scripts and CLI commands with the same function
                     if code.strip().startswith("#!CLI"):
                         # For CLI commands, extract the command and run it as a simple bash script
-                        cli_command = re.sub(r"^#!CLI", "", code, 1).strip()  # noqa: B034
+                        cli_command = re.sub(r"^#!CLI", "", code, count=1).strip()
                         # Remove any newlines to ensure it's a single command
                         cli_command = cli_command.replace("\n", " ")
                         result = run_with_timeout(run_bash_script, [cli_command], timeout=timeout)
                     else:
                         # For Bash scripts, remove the marker and run as a bash script
-                        bash_script = re.sub(r"^#!BASH|^# Bash script", "", code, 1).strip()  # noqa: B034
+                        bash_script = re.sub(r"^#!BASH|^# Bash script", "", code, count=1).strip()
                         result = run_with_timeout(run_bash_script, [bash_script], timeout=timeout)
                 # Otherwise, run as Python code
                 else:
@@ -1885,9 +1883,6 @@ Each library is listed with its description to help you understand its functiona
         """
         import os
         import tempfile
-        import base64
-        from datetime import datetime
-        import re
 
         if not save_pdf:
             print("PDF saving is disabled. No file will be saved.")
