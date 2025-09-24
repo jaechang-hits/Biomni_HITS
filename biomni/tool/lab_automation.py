@@ -1,15 +1,243 @@
 import ast
 import asyncio
+import importlib
+import io
 import json
 import os
-import pickle
 import re
 import tempfile
 import time
 import traceback
+import urllib.request
+import zipfile
 from typing import Any
 
 from biomni.llm import get_llm
+
+# ------------------------------------------------------------
+# Dynamic PyLabRobot documentation/content loader
+# ------------------------------------------------------------
+
+_MAX_DOC_CHARS = int("50000")
+
+
+def _collect_from_installed_package(section: str) -> list[str]:
+    """Collect short, up-to-date metadata from the installed pylabrobot.
+
+    This does not rely on docs being packaged; it introspects modules and includes
+    small docstrings and lists of available resources.
+    """
+    docs: list[str] = []
+    try:
+        pr = importlib.import_module("pylabrobot.resources")
+        names = [n for n in dir(pr) if not n.startswith("_")]
+        important = [
+            n for n in names if any(k in n.lower() for k in ["tip", "rack", "carrier", "plate", "hamilton", "iswap"])
+        ]
+        lines = [
+            "Installed PyLabRobot resources detected:",
+            ", ".join(sorted(important)[:400]),
+        ]
+        # Removed explicit resource name checks per request
+
+        docs.append("\n".join(lines))
+    except Exception:
+        pass
+    return docs
+
+
+def _load_pylabrobot_tutorial_content(section: str) -> str:
+    """Load PLR tutorial/docs text from multiple sources with graceful fallback.
+
+    Precedence:
+      1) Docs from installed pylabrobot package (docs/user_guide/...)
+      2) Introspect installed package (pylabrobot)
+    """
+    docs: list[str] = []
+
+    # 1) Fetch from GitHub repo zip (pinned commit by default)
+    repo = "PyLabRobot/pylabrobot"
+    ref = "106aef9c8699ceb826d8c9c894eba304a082f24d"
+
+    gh_docs = _collect_docs_from_github_zip(repo=repo, ref=ref, section=section)
+
+    if gh_docs and isinstance(gh_docs[0], tuple):
+        if section == "liquid":
+            formatted = _format_liquid_user_guide(gh_docs)  # returns single string
+            if formatted:
+                docs.append(formatted)
+        else:
+            # Concatenate texts in stable order
+            docs.append("\n\n".join(text for _, text in gh_docs if text))
+    else:
+        docs.extend(gh_docs)
+
+    # 2) Installed package introspection
+    docs.extend(_collect_from_installed_package(section))
+
+    if not docs:
+        return ""
+
+    text = "\n\n".join([d for d in docs if d])
+    if len(text) > _MAX_DOC_CHARS:
+        text = text[:_MAX_DOC_CHARS]
+    return text
+
+
+def _collect_docs_from_github_zip(repo: str, ref: str, section: str) -> list[tuple[str, str]] | list[str]:
+    """Download GitHub repo zip and extract user_guide docs for the section.
+
+    Uses:
+      - docs/user_guide/00_liquid-handling for section == "liquid"
+      - docs/user_guide/01_material-handling for section == "material"
+    """
+    if not repo:
+        return []
+
+    # Try commit zip first if ref looks like a commit SHA, then branch, then tag
+    url = f"https://github.com/{repo}/archive/{ref}.zip"
+
+    data = None
+    try:
+        with urllib.request.urlopen(url, timeout=20) as resp:
+            data = resp.read()
+    except Exception:
+        return []
+
+    # Restrict to specific subfolders by section
+    if section == "liquid":
+        # Only the Hamilton STAR(let) folder for now
+        target_subdir = "docs/user_guide/00_liquid-handling/hamilton-star"
+    else:
+        target_subdir = "docs/user_guide/01_material-handling"
+    target_subdir = target_subdir.lower()
+
+    collected_named: list[tuple[str, str]] = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            # Select relevant names within target_subdir
+            candidate_names = []
+            for name in zf.namelist():
+                lower = name.lower()
+                if target_subdir not in lower:
+                    continue
+                if lower.endswith("/"):
+                    continue
+                if not (
+                    lower.endswith(".md")
+                    or lower.endswith(".rst")
+                    or lower.endswith(".txt")
+                    or lower.endswith(".ipynb")
+                ):
+                    continue
+                candidate_names.append(name)
+
+            # Deterministic order; for liquid, ensure basic.ipynb first
+            if section == "liquid":
+                candidate_names.sort(key=lambda n: (0 if n.lower().endswith("basic.ipynb") else 1, n.lower()))
+            else:
+                candidate_names.sort(key=lambda n: n.lower())
+
+            for name in candidate_names:
+                lower = name.lower()
+                try:
+                    with zf.open(name) as f:
+                        content_bytes = f.read()
+                        if lower.endswith(".ipynb"):
+                            try:
+                                nb = json.loads(content_bytes.decode("utf-8"))
+                            except Exception:
+                                continue
+                            cells = nb.get("cells") or nb.get("worksheets", [{}])[0].get("cells", [])
+                            parts = []
+                            for c in cells:
+                                ctype = c.get("cell_type") or c.get("type")
+                                src = c.get("source") or c.get("input") or []
+                                if isinstance(src, list):
+                                    src = "".join(src)
+                                if not isinstance(src, str):
+                                    continue
+                                if ctype == "markdown":
+                                    parts.append(src)
+                                elif ctype == "code":
+                                    keep_lines = []
+                                    for line in src.splitlines():
+                                        l = line.strip()
+                                        if l.startswith("#"):
+                                            continue
+                                        if "pylabrobot" in l and ("import " in l or "from " in l):
+                                            keep_lines.append(l)
+                                    if keep_lines:
+                                        parts.append("Code refs:\n" + "\n".join(keep_lines[:20]))
+                                if sum(len(p) for p in parts) > 5000:
+                                    break
+                            text = "\n\n".join(parts)
+                        else:
+                            try:
+                                text = content_bytes.decode("utf-8")
+                            except Exception:
+                                text = str(content_bytes)
+                        if text:
+                            collected_named.append((lower, text[:5000]))
+                except Exception:
+                    continue
+    except Exception:
+        return []
+
+    return collected_named
+
+
+def _format_liquid_user_guide(named_docs: list[tuple[str, str]]) -> str:
+    """Assemble liquid-handling docs into a curated order with headings.
+
+    named_docs: list of (filename_lower, text) from GitHub.
+    Returns a single formatted string.
+    """
+    sections = [
+        (
+            "Getting started with liquid handling on a Hamilton STAR(let)",
+            ["/hamilton-star/", "basic.ipynb", "basic", "getting-started"],
+        ),
+        ("iSWAP Module", ["iswap"]),
+        ("Liquid level detection on Hamilton STAR(let)", ["liquid-level", "lld", "level_detection", "level-detection"]),
+        ("Z-probing", ["z-probing", "z_probing", "z-probing", "zprobing", "z-prob"]),
+        ("Foil", ["foil"]),
+        ("Using the 96 head", ["96", "head", "mca", "96-head", "head-96"]),
+        ("Debugging STAR issues", ["debug", "troubleshoot"]),
+        ("Hamilton STAR Hardware Guide", ["hardware", "star-hardware"]),
+        (
+            "Using “Hamilton Liquid Classes” with Pylabrobot",
+            ["liquid-classes", "liquid_classes", "hamilton-liquid-classes"],
+        ),
+    ]
+
+    used: set[int] = set()
+    out_parts: list[str] = []
+
+    def pick_first(keywords: list[str]) -> str:
+        for idx, (fname, text) in enumerate(named_docs):
+            if idx in used:
+                continue
+            if any(k in fname for k in keywords):
+                used.add(idx)
+                return text
+        return ""
+
+    for heading, keywords in sections:
+        text = pick_first(keywords)
+        if text:
+            out_parts.append(f"## {heading}\n\n{text}")
+
+    # Append any remaining docs not matched, to avoid losing content
+    for idx, (fname, text) in enumerate(named_docs):
+        if idx not in used and text:
+            # Derive a nice title from filename
+            leaf = fname.rsplit("/", 1)[-1]
+            title = leaf.replace("_", " ").replace("-", " ")
+            title = title.rsplit(".", 1)[0].strip().title()
+            out_parts.append(f"## {title}\n\n{text}")
+
+    return "\n\n".join(out_parts)
 
 
 def pylabrobot_liquid_handling_script(
@@ -21,7 +249,7 @@ def pylabrobot_liquid_handling_script(
     """Generate a PyLabRobot liquid handling script based on natural language description.
 
     Uses the comprehensive PyLabRobot tutorial database and Claude to generate
-    Python scripts for liquid handling tasks using the Hamilton STAR backend.
+    Python scripts for liquid handling tasks using the Hamilton STARBackend.
     Focuses on pipetting, aspirating, dispensing, and liquid transfer operations.
 
     Args:
@@ -57,20 +285,15 @@ def pylabrobot_liquid_handling_script(
         return {"success": False, "error": "Either 'prompt' or 'task_description' parameter is required"}
 
     try:
-        # Load PyLabRobot tutorial content
-        tutorial_path = os.path.join(os.path.dirname(__file__), "tutorial_db", "pylabrobot_liquid_handling.pkl")
-
-        if not os.path.exists(tutorial_path):
-            return {"success": False, "error": f"Tutorial database not found at {tutorial_path}"}
-
-        with open(tutorial_path, "rb") as f:
-            tutorial_content = pickle.load(f)
-
+        # Load PyLabRobot tutorial content (dynamic docs)
+        tutorial_content = _load_pylabrobot_tutorial_content("liquid")
+        if not tutorial_content:
+            return {"success": False, "error": "Failed to load PyLabRobot docs/tutorial content"}
     except Exception as e:
-        return {"success": False, "error": f"Failed to load tutorial database: {str(e)}"}
+        return {"success": False, "error": f"Failed to load tutorial content: {str(e)}"}
 
     # Create system prompt template
-    system_template = """You are an expert laboratory automation programmer specialized in PyLabRobot with Hamilton STAR liquid handling systems.
+    system_template = """You are an expert laboratory automation programmer specialized in PyLabRobot with Hamilton STARBackend liquid handling systems.
 
 Your task is to generate a complete, working Python script based on the user's natural language description of a liquid handling task.
 
@@ -80,12 +303,22 @@ PYLABROBOT TUTORIAL CONTENT:
 Based on the tutorial content above and the user's request, generate a complete Python script that focuses on LIQUID HANDLING operations such as:
 
 1. Uses proper PyLabRobot imports and setup
-2. Configures the Hamilton STAR backend appropriately
-3. Sets up the deck layout with appropriate carriers, tip racks, and plates
+2. Configures the Hamilton STARBackend appropriately
+3. Sets up the deck layout with appropriate carriers, tip racks, and plates.
 4. Implements the requested liquid handling operations (aspirate/dispense/transfer)
 5. Includes proper tip handling and liquid level detection
 6. Includes proper error handling and resource cleanup
-7. Follows best practices from the tutorial content
+7. Follows the tutorial content's syntax and example code as closely as possible.
+8. Use only available resources from the tutorial content.
+
+Extra Notes:
+- Use hamilton_96_tiprack_1000uL_filter instead of HTF (deprecated). Note the capital L in uL.
+- Use Cor_96_wellplate_360ul_Fb instead of Corning_96_wellplate_360ul_Fb.
+- You must name all your plates, tip racks, and carriers.
+- Assign labware into carriers via slot assignment (tip_car[0] = tiprack). Assign plates to rails using lh.deck.assign_child_resource(plate_car, rails=14).
+- Rails must be between -4 and 32.
+- There are some methods that are not async, including lh.summary(). Do not use await for these methods.
+
 
 Focus specifically on:
 - Pipetting operations
@@ -210,7 +443,7 @@ def pylabrobot_material_handling_script(
     """Generate a PyLabRobot material handling script based on natural language description.
 
     Uses the comprehensive PyLabRobot tutorial database and Claude to generate
-    Python scripts for material handling tasks using the Hamilton STAR iSWAP module.
+    Python scripts for material handling tasks using the Hamilton STARBackend iSWAP module.
     Focuses on plate movement, gripper operations, and robotic manipulation.
 
     Args:
@@ -246,20 +479,15 @@ def pylabrobot_material_handling_script(
         return {"success": False, "error": "Either 'prompt' or 'task_description' parameter is required"}
 
     try:
-        # Load PyLabRobot tutorial content
-        tutorial_path = os.path.join(os.path.dirname(__file__), "tutorial_db", "pylabrobot_material_handling.pkl")
-
-        if not os.path.exists(tutorial_path):
-            return {"success": False, "error": f"Tutorial database not found at {tutorial_path}"}
-
-        with open(tutorial_path, "rb") as f:
-            tutorial_content = pickle.load(f)
-
+        # Load PyLabRobot tutorial content (dynamic docs)
+        tutorial_content = _load_pylabrobot_tutorial_content("material")
+        if not tutorial_content:
+            return {"success": False, "error": "Failed to load PyLabRobot docs/tutorial content"}
     except Exception as e:
-        return {"success": False, "error": f"Failed to load tutorial database: {str(e)}"}
+        return {"success": False, "error": f"Failed to load tutorial content: {str(e)}"}
 
     # Create system prompt template focused on material handling
-    system_template = """You are an expert laboratory automation programmer specialized in PyLabRobot with Hamilton STAR material handling systems, particularly the iSWAP robotic gripper module.
+    system_template = """You are an expert laboratory automation programmer specialized in PyLabRobot with Hamilton STARBackend material handling systems, particularly the iSWAP robotic gripper module.
 
 Your task is to generate a complete, working Python script based on the user's natural language description of a material handling task.
 
@@ -268,13 +496,15 @@ PYLABROBOT TUTORIAL CONTENT:
 
 Based on the tutorial content above and the user's request, generate a complete Python script that focuses on MATERIAL HANDLING operations such as:
 
-1. Uses proper PyLabRobot imports and setup for iSWAP operations
-2. Configures the Hamilton STAR backend with iSWAP module
-3. Sets up the deck layout with appropriate carriers and plates
-4. Implements plate movement, gripping, and positioning operations
-5. Uses iSWAP rotation, gripper control, and positioning functions
+1. Uses proper PyLabRobot imports and setup
+2. Configures the Hamilton STARBackend appropriately
+3. Sets up the deck layout with appropriate carriers, tip racks, and plates.
+4. Implements the requested liquid handling operations (aspirate/dispense/transfer)
+5. Includes proper tip handling and liquid level detection
 6. Includes proper error handling and resource cleanup
-7. Follows best practices for material handling from the tutorial content
+7. Follows the tutorial content's syntax and example code as closely as possible.
+8. Use only available resources from the tutorial content.
+
 
 Focus specifically on:
 - Plate transfers and positioning
@@ -592,17 +822,23 @@ def _modify_script_for_testing(script_content: str, enable_tracking: bool) -> st
     """Modify script to use simulation backends and enable tracking."""
     modified_script = script_content
 
-    # Replace STAR backend with ChatterboxBackend and asyncio.run() calls
-    replacements = [
-        ("STAR()", "ChatterBoxBackend()"),
-        (
-            "from pylabrobot.liquid_handling.backends import STAR",
-            "from pylabrobot.liquid_handling.backends import ChatterBoxBackend, STAR",
-        ),
-    ]
+    # Replace STARBackend with LiquidHandlerChatterboxBackend for simulation
+    replacements = [("STARBackend()", "LiquidHandlerChatterboxBackend()")]
 
     for old, new in replacements:
         modified_script = modified_script.replace(old, new)
+
+    lines = modified_script.split("\n")
+    insert_at = 0
+    for i, line in enumerate(lines):
+        if line.strip().startswith(("from ", "import ", "#")):
+            insert_at = i + 1
+            continue
+        if line.strip().startswith(("async def", "def", "class", "if __name__")):
+            break
+        insert_at = i + 1
+    lines.insert(insert_at, "from pylabrobot.liquid_handling.backends import LiquidHandlerChatterboxBackend")
+    modified_script = "\n".join(lines)
 
     # Add tracking imports and setup at the beginning
     if enable_tracking:
