@@ -3,4 +3,5 @@
 pip install transformers sentencepiece langchain-google-genai langchain_ollama mcp
 pip install lazyslide
 pip install "git+https://github.com/YosefLab/popV.git@refs/pull/100/head"
-pip install torch matplotlib numpy esm
+pip install pybiomart
+pip install fair-esm

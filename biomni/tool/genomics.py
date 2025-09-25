@@ -9,6 +9,7 @@ import pandas as pd
 import requests
 import scanpy as sc
 import torch
+from pybiomart import Dataset
 from tqdm import tqdm
 
 from biomni.llm import get_llm
@@ -104,7 +105,183 @@ def unsupervised_celltype_transfer_between_scRNA_datasets(
     return "\n".join(steps)
 
 
-def fetch_isoform_sequences(ensembl_gene_id: str) -> list[str]:
+def interspecies_gene_conversion(
+    gene_list: list[str],
+    source_species: str,
+    target_species: str,
+) -> str:
+    """Convert ENSEMBL gene IDs between different species using BioMart homology mapping.
+
+    This function converts a list of ENSEMBL gene IDs from one species to their
+    homologous counterparts in another species using the Ensembl BioMart database.
+    The conversion is based on one-to-one ortholog mappings between species.
+
+    Parameters
+    ----------
+    gene_list : list[str]
+        List of ENSEMBL gene IDs to convert (e.g., ['ENSG00000007372', 'ENSG00000181449'])
+    source_species : str
+        Source species name. Supported species: human, mouse, rat, zebrafish, fly,
+        drosophila, worm, yeast, chicken, pig, cow, dog, macaque
+    target_species : str
+        Target species name. Same supported species as source_species.
+
+    Returns
+    -------
+    str
+        Multi-line string containing the steps performed and file paths where
+        results were saved. Returns empty string if source and target species are the same.
+
+    Raises
+    ------
+    ValueError
+        If source_species or target_species is not in the supported species list.
+
+    Notes
+    -----
+    - The function saves conversion results to a CSV file named
+      '{source_species}_to_{target_species}_gene_conversion.csv'
+    - Genes that cannot be converted will have NaN values in the output
+    - The function includes fallback mechanisms for robust data retrieval
+    - Species synonyms are supported (e.g., 'drosophila' maps to 'fly')
+
+    Examples
+    --------
+    >>> gene_ids = ["ENSG00000007372", "ENSG00000181449"]
+    >>> result = interspecies_gene_conversion(gene_ids, "human", "mouse")
+    >>> print(result)
+    Gene conversion results saved to: human_to_mouse_gene_conversion.csv
+    """
+
+    steps = []
+
+    species_mapping = {
+        "human": "hsapiens_gene_ensembl",
+        "mouse": "mmusculus_gene_ensembl",
+        "rat": "rnorvegicus_gene_ensembl",
+        "zebrafish": "drerio_gene_ensembl",
+        "fly": "dmelanogaster_gene_ensembl",
+        "drosophila": "dmelanogaster_gene_ensembl",
+        "worm": "celegans_gene_ensembl",
+        "yeast": "scerevisiae_gene_ensembl",
+        "chicken": "ggallus_gene_ensembl",
+        "pig": "sscrofa_gene_ensembl",
+        "cow": "btaurus_gene_ensembl",
+        "dog": "cfamiliaris_gene_ensembl",
+        "macaque": "mmulatta_gene_ensembl",
+    }
+
+    homolog_mapping = {
+        "human": "hsapiens_homolog_ensembl_gene",
+        "mouse": "mmusculus_homolog_ensembl_gene",
+        "rat": "rnorvegicus_homolog_ensembl_gene",
+        "zebrafish": "drerio_homolog_ensembl_gene",
+        "fly": "dmelanogaster_homolog_ensembl_gene",
+        "drosophila": "dmelanogaster_homolog_ensembl_gene",
+        "worm": "celegans_homolog_ensembl_gene",
+        "yeast": "scerevisiae_homolog_ensembl_gene",
+        "chicken": "ggallus_homolog_ensembl_gene",
+        "pig": "sscrofa_homolog_ensembl_gene",
+        "cow": "btaurus_homolog_ensembl_gene",
+        "dog": "cfamiliaris_homolog_ensembl_gene",
+        "macaque": "mmulatta_homolog_ensembl_gene",
+    }
+
+    if source_species not in species_mapping:
+        raise ValueError(
+            f"Source species '{source_species}' not supported. Available species: {list(species_mapping.keys())}"
+        )
+
+    if target_species not in homolog_mapping:
+        raise ValueError(
+            f"Target species '{target_species}' not supported. Available species: {list(homolog_mapping.keys())}"
+        )
+
+    original_length = len(gene_list)
+
+    if source_species == target_species:
+        return "\n".join(steps)
+
+    source_dataset_name = species_mapping[source_species]
+    homolog_attribute = homolog_mapping[target_species]
+
+    try:
+        source_dataset = Dataset(name=source_dataset_name, host="http://www.ensembl.org")
+
+        mapping = source_dataset.query(
+            attributes=["ensembl_gene_id", homolog_attribute], filters={"link_ensembl_gene_id": gene_list}
+        )
+
+        if mapping.empty:
+            all_mapping = source_dataset.query(attributes=["ensembl_gene_id", homolog_attribute])
+            mapping = all_mapping[all_mapping["ensembl_gene_id"].isin(gene_list)]
+
+        mapping_filtered = mapping[mapping.iloc[:, 1].notna() & (mapping.iloc[:, 1] != "")]
+        gene_mapping = dict(zip(mapping_filtered.iloc[:, 0], mapping_filtered.iloc[:, 1], strict=False))
+
+        converted_genes = []
+        for gene in gene_list:
+            if gene in gene_mapping:
+                converted_genes.append(gene_mapping[gene])
+            else:
+                converted_genes.append(np.nan)
+
+        assert len(converted_genes) == original_length, "Input and output gene list shapes must be the same"
+
+        conversion_df = pd.DataFrame({f"{source_species}_genes": gene_list, f"{target_species}_genes": converted_genes})
+        filename = f"{source_species}_to_{target_species}_gene_conversion.csv"
+        conversion_df.to_csv(filename, index=False)
+        steps.append(f"Gene conversion results saved to: {filename}")
+
+        return "\n".join(steps)
+
+    except Exception as e:
+        steps.append(f"Error during gene conversion from {source_species} to {target_species}: {e}")
+        try:
+            source_dataset = Dataset(name=source_dataset_name, host="http://www.ensembl.org")
+
+            all_mapping = source_dataset.query(attributes=["ensembl_gene_id", homolog_attribute])
+
+            mapping = all_mapping[all_mapping["ensembl_gene_id"].isin(gene_list)]
+
+            mapping_filtered = mapping[mapping.iloc[:, 1].notna() & (mapping.iloc[:, 1] != "")]
+            gene_mapping = dict(zip(mapping_filtered.iloc[:, 0], mapping_filtered.iloc[:, 1], strict=False))
+
+            converted_genes = []
+            for gene in gene_list:
+                if gene in gene_mapping:
+                    converted_genes.append(gene_mapping[gene])
+                else:
+                    converted_genes.append(np.nan)
+
+            assert len(converted_genes) == original_length, "Input and output gene list shapes must be the same"
+
+            conversion_df = pd.DataFrame(
+                {f"{source_species}_genes": gene_list, f"{target_species}_genes": converted_genes}
+            )
+            filename = f"{source_species}_to_{target_species}_gene_conversion.csv"
+            conversion_df.to_csv(filename, index=False)
+            steps.append(f"Gene conversion results saved to: {filename}")
+
+            return "\n".join(steps)
+
+        except Exception as e2:
+            steps.append(f"Alternative approach also failed: {e2}")
+            converted_genes = [np.nan] * original_length
+
+            assert len(converted_genes) == original_length, "Input and output gene list shapes must be the same"
+
+            conversion_df = pd.DataFrame(
+                {f"{source_species}_genes": gene_list, f"{target_species}_genes": converted_genes}
+            )
+            filename = f"{source_species}_to_{target_species}_gene_conversion.csv"
+            conversion_df.to_csv(filename, index=False)
+            steps.append(f"Gene conversion results (failed) saved to: {filename}")
+
+            return "\n".join(steps)
+
+
+def _fetch_isoform_sequences(ensembl_gene_id: str) -> list[str]:
     """
     this is not registered as a tool
     Fetch all protein isoform FASTA sequences for a given Ensembl gene ID.
@@ -145,12 +322,14 @@ def generate_gene_embeddings_with_ESM_models(
     """
     Generate average protein embeddings for a list of Ensembl gene IDs.
     Memory-friendly implementation with rolling averages and small batch processing.
+    Embeddings are automatically saved to disk with a default filename if no save_path is provided.
 
     Args:
         ensembl_gene_ids: List of Ensembl gene IDs (e.g., ["ENSG00000012048", ...])
         model_name: ESM model name to use (default: "esm2_t6_8M_UR50D")
         layer: Which layer to extract embeddings from (default: 6)
-        save_path: Optional path to save embeddings as PyTorch dict (default: None)
+        save_path: Optional path to save embeddings as PyTorch dict. If None, uses default filename
+                  format: "esm_embeddings_{model_name}_{gene_list}.pt" (default: None)
         batch_size: Number of sequences to process at once (default: 1)
         max_sequence_length: Maximum sequence length to process (default: 1024)
 
@@ -173,7 +352,7 @@ def generate_gene_embeddings_with_ESM_models(
     steps.append("Fetching protein isoform sequences...")
     ensembl_gene_isoforms_map: dict[str, list[str]] = {}
     for ensembl_id in tqdm(ensembl_gene_ids, desc="Fetching sequences"):
-        isoform_sequences = fetch_isoform_sequences(ensembl_id)
+        isoform_sequences = _fetch_isoform_sequences(ensembl_id)
         # Filter sequences by length to avoid memory issues
         filtered_sequences = [seq for seq in isoform_sequences if len(seq) <= max_sequence_length]
         if filtered_sequences:
@@ -262,15 +441,21 @@ def generate_gene_embeddings_with_ESM_models(
         else:
             steps.append(f"  Gene {gene}: no valid embeddings found")
 
-    if save_path:
-        save_dir = Path(save_path).parent
-        save_dir.mkdir(parents=True, exist_ok=True)
+    # Use default save path if none provided
+    if save_path is None:
+        gene_list_str = "_".join(ensembl_gene_ids[:3])  # Use first 3 genes for filename
+        if len(ensembl_gene_ids) > 3:
+            gene_list_str += f"_and_{len(ensembl_gene_ids) - 3}_more"
+        save_path = f"esm_embeddings_{model_name}_{gene_list_str}.pt"
 
-        torch_embeddings = {gene_id: torch.from_numpy(embedding) for gene_id, embedding in gene_avg_embedding.items()}
+    save_dir = Path(save_path).parent
+    save_dir.mkdir(parents=True, exist_ok=True)
 
-        torch.save(torch_embeddings, save_path)
-        steps.append(f"Embeddings saved to: {os.path.abspath(save_path)}")
-        steps.append(f"File size: {os.path.getsize(save_path) / (1024 * 1024):.2f} MB")
+    torch_embeddings = {gene_id: torch.from_numpy(embedding) for gene_id, embedding in gene_avg_embedding.items()}
+
+    torch.save(torch_embeddings, save_path)
+    steps.append(f"Embeddings saved to: {os.path.abspath(save_path)}")
+    steps.append(f"File size: {os.path.getsize(save_path) / (1024 * 1024):.2f} MB")
 
     return "\n".join(steps)
 
