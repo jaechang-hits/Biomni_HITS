@@ -844,18 +844,17 @@ def textify_api_dict(api_dict):
 
 def read_module2api():
     fields = [
+        "literature",
         "biochemistry",
-        "bioengineering",
         "bioimaging",
+        "bioengineering",
         "biophysics",
         "cancer_biology",
         "cell_biology",
-        "database",
         "molecular_biology",
         "genetics",
         "genomics",
         "immunology",
-        "literature",
         "microbiology",
         "pathology",
         "pharmacology",
@@ -863,6 +862,7 @@ def read_module2api():
         "synthetic_biology",
         "systems_biology",
         "support_tools",
+        "database",
     ]
 
     module2api = {}

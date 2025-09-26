@@ -1,8 +1,9 @@
 import logging
 import os
-import subprocess
+import zipfile
 
 import matplotlib
+import requests
 
 matplotlib.use("Agg")  # Use non-interactive backend
 import nibabel as nib
@@ -188,6 +189,92 @@ class SegmentationTool:
         print(f"  nnUNet_raw_data_base: {os.environ['nnUNet_raw_data_base']}")
         print(f"  nnUNet_preprocessed: {os.environ['nnUNet_preprocessed']}")
 
+    def _download_model_with_browser_headers(self, url, output_path):
+        """
+        Download model with browser-like headers to bypass Zenodo's anti-bot protection
+        """
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+        }
+
+        logger.info(f"Downloading model from: {url}")
+
+        try:
+            response = requests.get(url, headers=headers, stream=True, timeout=300)
+            response.raise_for_status()
+
+            with open(output_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+
+            logger.info(f"Download completed: {output_path}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Download failed: {e}")
+            if os.path.exists(output_path):
+                os.remove(output_path)
+            return False
+
+    def _download_and_extract_model(self, task_id, model_type="3d_fullres"):
+        """
+        Download and extract nnUNet model with browser-like headers - extracts directly to nnUNet directory
+        """
+        results_folder = os.environ.get("nnUNet_RESULTS_FOLDER", "~/nnUNet_results")
+        results_folder = os.path.expanduser(results_folder)
+
+        # Create the nnUNet directory
+        nnunet_dir = os.path.join(results_folder, "nnUNet")
+        os.makedirs(nnunet_dir, exist_ok=True)
+
+        # Check if model already exists
+        task_dir = os.path.join(nnunet_dir, model_type, task_id)
+        if os.path.exists(task_dir):
+            # Check if it has the expected structure
+            plans_file = os.path.join(task_dir, "nnUNetTrainerV2__nnUNetPlansv2.1")
+            if os.path.exists(plans_file):
+                logger.info(f"Model already exists for task '{task_id}' with {model_type}")
+                return True
+
+        # Download URL for the task
+        download_url = f"https://zenodo.org/record/4003545/files/{task_id}.zip?download=1"
+
+        # Create temporary file for download
+        temp_zip = os.path.join(nnunet_dir, f"{task_id}_temp.zip")
+
+        # Download with browser headers
+        if self._download_model_with_browser_headers(download_url, temp_zip):
+            try:
+                logger.info(f"Extracting {temp_zip} to {nnunet_dir}")
+                with zipfile.ZipFile(temp_zip, "r") as zip_ref:
+                    zip_ref.extractall(nnunet_dir)
+
+                # Remove temporary zip file
+                os.remove(temp_zip)
+
+                # Verify extraction worked
+                if os.path.exists(task_dir):
+                    logger.info(f"Model successfully downloaded and extracted for task '{task_id}'")
+                    logger.info(f"Model directory: {task_dir}")
+                    return True
+                else:
+                    logger.error(f"Task directory not found after extraction: {task_dir}")
+                    return False
+
+            except Exception as e:
+                logger.error(f"Extraction failed: {e}")
+                if os.path.exists(temp_zip):
+                    os.remove(temp_zip)
+                return False
+        else:
+            return False
+
     def segment_with_nn_unet(
         self,
         image_path,
@@ -201,9 +288,10 @@ class SegmentationTool:
         verbose=True,
         auto_prepare_input=True,
         results_folder=None,
+        auto_download=True,
     ):
         """
-        Segment images using nnUNet with proper environment setup
+        Segment images using nnUNet with proper environment setup and automatic model downloading
         Args:
             image_path: Path to input image file or directory
             output_dir: Directory to save segmentation results
@@ -216,6 +304,7 @@ class SegmentationTool:
             verbose: Verbose logging (default: True)
             auto_prepare_input: Automatically prepare input for nnUNet (default: True)
             results_folder: Path to nnUNet results folder (default: None, will use environment variable or default)
+            auto_download: Automatically download missing models (default: True)
         """
         if folds is None:
             folds = [0, 1, 2, 3, 4]
@@ -244,19 +333,10 @@ class SegmentationTool:
 
         verify_nifti_input(image_path)
 
-        # Determine model directory using nnUNet environment variables
-        model_folder = None
-
-        # Use the nnUNet_RESULTS_FOLDER environment variable
+        # Get or set up the results folder
         results_folder = os.environ.get("nnUNet_RESULTS_FOLDER")
-        if results_folder:
-            model_path = os.path.join(results_folder, model_type, task_id, "nnUNetTrainer__nnUNetPlansv2.1")
-            if os.path.exists(model_path):
-                model_folder = model_path
-                logging.info(f"Using model from nnUNet_RESULTS_FOLDER: {model_folder}")
-
-        # If not found, try to find it in common locations
-        if not model_folder:
+        if not results_folder:
+            # Try common locations
             common_paths = [
                 "./models/nnUNet",
                 "~/nnUNet_results",
@@ -265,53 +345,95 @@ class SegmentationTool:
 
             for base_path in common_paths:
                 expanded_path = os.path.expanduser(base_path)
-                model_path = expanded_path
-                if os.path.exists(model_path):
-                    model_folder = model_path
-                    logging.info(f"Using model from common path: {model_folder}")
-                    # Update environment variable to match found path
-                    os.environ["nnUNet_RESULTS_FOLDER"] = os.path.dirname(
-                        os.path.dirname(os.path.dirname(model_folder))
-                    )
+                if os.path.exists(expanded_path):
+                    results_folder = expanded_path
                     break
 
-        # If still no model found, ask user for path
-        if model_folder is None:
-            logging.warning("No model found in common locations. Please specify the results folder path.")
-            user_results_folder = input("Please enter the path to your nnUNet results folder: ").strip()
-            if user_results_folder:
-                os.environ["nnUNet_RESULTS_FOLDER"] = os.path.expanduser(user_results_folder)
-                model_path = os.path.join(user_results_folder, model_type, task_id, "nnUNetTrainer__nnUNetPlansv2.1")
-                if os.path.exists(model_path):
-                    model_folder = model_path
-                    logging.info(f"Using model from user-specified path: {model_folder}")
-                else:
-                    raise RuntimeError(f"Model not found at {model_path}")
-            else:
-                raise RuntimeError("No results folder specified and no default models found")
+            # If still no folder found, create one
+            if not results_folder:
+                results_folder = os.path.expanduser("~/nnUNet_results")
+                os.makedirs(results_folder, exist_ok=True)
+                logging.info(f"Created new results folder: {results_folder}")
 
-        # Check if model weights exist
-        if not os.path.exists(model_folder):
-            user_input = (
-                input(f"Model weights for {task_id} not found. Do you want to download them? (y/n): ").strip().lower()
-            )
-            if user_input == "y":
-                try:
-                    subprocess.run(f"nnUNet_download_pretrained_model {task_id}", shell=True, check=True)
+        os.environ["RESULTS_FOLDER"] = results_folder
+        os.environ["nnUNet_RESULTS_FOLDER"] = results_folder
+        logging.info(f"Set RESULTS_FOLDER environment variable to: {results_folder}")
+
+        # Construct the expected model path - using the correct structure
+        model_folder = os.path.join(results_folder, "nnUNet", model_type, task_id, "nnUNetTrainerV2__nnUNetPlansv2.1")
+
+        logging.info(f"Looking for model at: {model_folder}")
+
+        # Check if model files actually exist (not just the directory)
+        def check_model_files_exist(model_folder, folds):
+            """Check if actual model weight files exist for the specified folds"""
+            if not os.path.exists(model_folder):
+                return False
+
+            # Check for plans.pkl and other required files
+            required_files = ["plans.pkl"]
+            for req_file in required_files:
+                if not os.path.exists(os.path.join(model_folder, req_file)):
+                    return False
+
+            # Check if at least one fold has model files
+            for fold in folds:
+                fold_dir = os.path.join(model_folder, f"fold_{fold}")
+                if os.path.exists(fold_dir):
+                    # Look for model files (.model, .model.pkl, etc.)
+                    model_files = [f for f in os.listdir(fold_dir) if f.endswith((".model", ".model.pkl"))]
+                    if model_files:
+                        return True
+            return False
+
+        # Check if model exists, download if not
+        if not check_model_files_exist(model_folder, folds):
+            if auto_download:
+                logging.info(f"Model weights for {task_id} not found. Downloading...")
+                # Ensure the results folder structure exists
+                os.makedirs(os.path.dirname(model_folder), exist_ok=True)
+
+                # Download the model using our custom download function
+                if self._download_and_extract_model(task_id, model_type):
                     logging.info(f"Downloaded pretrained model for {task_id} successfully.")
-                except subprocess.CalledProcessError as e:
-                    # FIX: re-raise with context (ruff B904)
-                    raise RuntimeError(f"Failed to download pretrained model: {e}") from e
-            else:
-                raise RuntimeError("Model weights not found and download declined by user.")
+                else:
+                    raise RuntimeError(f"Failed to download model for {task_id}")
 
+                # Verify the download worked
+                if not check_model_files_exist(model_folder, folds):
+                    raise RuntimeError(
+                        f"Model download completed but files not found at expected location: {model_folder}"
+                    )
+            else:
+                # Ask user for permission to download
+                user_input = (
+                    input(f"Model weights for {task_id} not found. Do you want to download them? (y/n): ")
+                    .strip()
+                    .lower()
+                )
+                if user_input == "y":
+                    # Download the model using our custom download function
+                    if self._download_and_extract_model(task_id, model_type):
+                        logging.info(f"Downloaded pretrained model for {task_id} successfully.")
+                    else:
+                        raise RuntimeError(f"Failed to download model for {task_id}")
+                else:
+                    raise RuntimeError("Model weights not found and download declined by user.")
+
+        # Double-check that we now have the model
+        if not check_model_files_exist(model_folder, folds):
+            raise RuntimeError(f"Model files still not found at {model_folder} after download attempt")
+
+        logging.info(f"Using model: {model_folder}")
+
+        # Patch torch.load for compatibility
         original_torch_load = torch.load
 
         def patched_torch_load(*args, **kwargs):
             kwargs["weights_only"] = False
             return original_torch_load(*args, **kwargs)
 
-        # Temporarily patch torch.load for inference only
+        # Run the segmentation
         torch.load = patched_torch_load
         try:
             predict_from_folder(
@@ -493,8 +615,19 @@ class ImageRegistrationTool:
 
         Args:
             image: SimpleITK Image object
-            output_path: Path to save the image
+            output_path: Path to save the image (must include filename and extension)
         """
+        # Validate output path
+        if os.path.isdir(output_path):
+            raise ValueError(
+                f"Output path '{output_path}' is a directory. Please provide a file path with extension (e.g., '.nii.gz', '.png', '.jpg')"
+            )
+
+        if not os.path.splitext(output_path)[1]:
+            raise ValueError(
+                f"Output path '{output_path}' has no file extension. Please add an extension (e.g., '.nii.gz', '.png', '.jpg')"
+            )
+
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         logger.info(f"Saving image to: {output_path}")
         try:

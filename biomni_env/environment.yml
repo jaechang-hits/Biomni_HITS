@@ -26,7 +26,6 @@ dependencies:
       - tqdm
       - seaborn
       - networkx
-      - nnunet
       - requests
       - pyyaml
       - jupyter

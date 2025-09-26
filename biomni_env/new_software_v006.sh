@@ -5,3 +5,4 @@ pip install lazyslide
 pip install "git+https://github.com/YosefLab/popV.git@refs/pull/100/head"
 pip install pybiomart
 pip install fair-esm
+pip install nnunet nibabel nilearn
