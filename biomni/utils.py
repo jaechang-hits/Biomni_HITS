@@ -846,6 +846,7 @@ def read_module2api():
     fields = [
         "literature",
         "biochemistry",
+        "bioimaging",
         "bioengineering",
         "biophysics",
         "glycoengineering",
