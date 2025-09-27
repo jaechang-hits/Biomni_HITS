@@ -846,8 +846,10 @@ def read_module2api():
     fields = [
         "literature",
         "biochemistry",
+        "bioimaging",
         "bioengineering",
         "biophysics",
+        "glycoengineering",
         "cancer_biology",
         "cell_biology",
         "molecular_biology",
