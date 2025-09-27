@@ -2019,7 +2019,7 @@ def get_pdf_css_content() -> str:
     """
     return """
     body {
-        font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', 'Twemoji', 'EmojiOne Color', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif, 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', 'Twemoji', 'EmojiOne Color';
         font-size: 9pt;
         line-height: 1.4;
         max-width: 800px;
@@ -2028,7 +2028,7 @@ def get_pdf_css_content() -> str:
         color: #333;
     }
     h1, h2, h3, h4, h5, h6 {
-        font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', 'Twemoji', 'EmojiOne Color', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif, 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', 'Twemoji', 'EmojiOne Color';
         color: #2c3e50;
         margin-top: 1em;
         margin-bottom: 0.5em;
@@ -2121,7 +2121,7 @@ def get_pdf_css_content() -> str:
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     p {
-        font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', 'Twemoji', 'EmojiOne Color', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif, 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', 'Twemoji', 'EmojiOne Color';
         margin: 0.3em 0;
     }
     /* Tool call highlighting - matching observation and code formatting */
