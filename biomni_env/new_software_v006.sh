@@ -7,3 +7,4 @@ pip install pybiomart
 pip install fair-esm
 pip install nnunet nibabel nilearn
 pip install mi-googlesearch-python
+pip install weasyprint

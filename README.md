@@ -169,29 +169,43 @@ agent = A1()  # Everything uses gpt-4, 1200s timeout
 
 For detailed configuration options, see the **[Configuration Guide](docs/configuration.md)**.
 
+### PDF Generation
 
-## Running Tests
+Generate PDF reports of execution traces:
 
-Biomni uses Python's built-in unittest framework.
+```python
+from biomni.agent import A1
 
-- Run all tests in the tests/ folder (recommended):
+# Initialize agent
+agent = A1(path='./data', llm='claude-sonnet-4-20250514')
 
-```bash
-python3 -m unittest discover -s tests -p 'test_*.py' -q
+# Run your task
+agent.go("Your biomedical task here")
+
+# Save conversation history as PDF
+agent.save_conversation_history("my_analysis_results.pdf")
 ```
 
-- Run only the glycoengineering tests:
+**PDF Generation Dependencies:**
+
+For optimal PDF generation, install one of these packages:
 
 ```bash
-python3 -m unittest -q tests/test_glycoengineering.py
-```
+# Option 1: WeasyPrint (recommended for best layout control)
+pip install weasyprint
 
-Notes:
-- The top-level package import may require optional dependencies (e.g., pandas). The commands above restrict discovery to the tests/ folder to avoid importing the entire biomni package during discovery.
-- Ensure you are in your Biomni environment before running tests:
+# Option 2: markdown2pdf (Rust-based, fast and reliable)
+# macOS:
+brew install theiskaa/tap/markdown2pdf
 
-```bash
-conda activate biomni_e1
+# Windows/Linux (using Cargo):
+cargo install markdown2pdf
+
+# Or download prebuilt binaries from:
+# https://github.com/theiskaa/markdown2pdf/releases/latest
+
+# Option 3: Pandoc (pip installation)
+pip install pandoc
 ```
 
 ## MCP (Model Context Protocol) Support
