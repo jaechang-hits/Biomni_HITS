@@ -194,8 +194,15 @@ For optimal PDF generation, install one of these packages:
 # Option 1: WeasyPrint (recommended for best layout control)
 pip install weasyprint
 
-# Option 2: markdown2pdf3 (simpler fallback with better font handling)
-pip install markdown2pdf3
+# Option 2: markdown2pdf (Rust-based, fast and reliable)
+# macOS:
+brew install theiskaa/tap/markdown2pdf
+
+# Windows/Linux (using Cargo):
+cargo install markdown2pdf
+
+# Or download prebuilt binaries from:
+# https://github.com/theiskaa/markdown2pdf/releases/latest
 
 # Option 3: Pandoc (pip installation)
 pip install pandoc
