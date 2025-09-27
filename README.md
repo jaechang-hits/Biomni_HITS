@@ -192,7 +192,14 @@ For optimal PDF generation, install one of these packages:
 
 ```bash
 # Option 1: WeasyPrint (recommended for best layout control)
-pip install weasyprint
+# Conda environment (recommended)
+conda install weasyprint
+
+# System installation
+brew install weasyprint  # macOS
+apt install weasyprint   # Linux
+
+# See [WeasyPrint Installation Guide](https://doc.courtbouillon.org/weasyprint/stable/first_steps.html) for detailed instructions.
 
 # Option 2: markdown2pdf (Rust-based, fast and reliable)
 # macOS:
