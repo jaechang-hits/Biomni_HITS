@@ -1,10 +1,8 @@
 import ast
 import asyncio
-import importlib
 import io
 import json
 import os
-import re
 import tempfile
 import time
 import traceback
@@ -12,38 +10,11 @@ import urllib.request
 import zipfile
 from typing import Any
 
-from biomni.llm import get_llm
-
 # ------------------------------------------------------------
 # Dynamic PyLabRobot documentation/content loader
 # ------------------------------------------------------------
 
 _MAX_DOC_CHARS = int("50000")
-
-
-def _collect_from_installed_package(section: str) -> list[str]:
-    """Collect short, up-to-date metadata from the installed pylabrobot.
-
-    This does not rely on docs being packaged; it introspects modules and includes
-    small docstrings and lists of available resources.
-    """
-    docs: list[str] = []
-    try:
-        pr = importlib.import_module("pylabrobot.resources")
-        names = [n for n in dir(pr) if not n.startswith("_")]
-        important = [
-            n for n in names if any(k in n.lower() for k in ["tip", "rack", "carrier", "plate", "hamilton", "iswap"])
-        ]
-        lines = [
-            "Installed PyLabRobot resources detected:",
-            ", ".join(sorted(important)[:400]),
-        ]
-        # Removed explicit resource name checks per request
-
-        docs.append("\n".join(lines))
-    except Exception:
-        pass
-    return docs
 
 
 def _load_pylabrobot_tutorial_content(section: str) -> str:
@@ -71,9 +42,6 @@ def _load_pylabrobot_tutorial_content(section: str) -> str:
             docs.append("\n\n".join(text for _, text in gh_docs if text))
     else:
         docs.extend(gh_docs)
-
-    # 2) Installed package introspection
-    docs.extend(_collect_from_installed_package(section))
 
     if not docs:
         return ""
@@ -203,8 +171,6 @@ def _format_liquid_user_guide(named_docs: list[tuple[str, str]]) -> str:
         ("Z-probing", ["z-probing", "z_probing", "z-probing", "zprobing", "z-prob"]),
         ("Foil", ["foil"]),
         ("Using the 96 head", ["96", "head", "mca", "96-head", "head-96"]),
-        ("Debugging STAR issues", ["debug", "troubleshoot"]),
-        ("Hamilton STAR Hardware Guide", ["hardware", "star-hardware"]),
         (
             "Using “Hamilton Liquid Classes” with Pylabrobot",
             ["liquid-classes", "liquid_classes", "hamilton-liquid-classes"],
@@ -240,385 +206,27 @@ def _format_liquid_user_guide(named_docs: list[tuple[str, str]]) -> str:
     return "\n\n".join(out_parts)
 
 
-def pylabrobot_liquid_handling_script(
-    prompt: str = None,
-    task_description: str = None,
-    verbose: bool = True,
-    save_to_dir: str = None,
-) -> dict[str, Any]:
-    """Generate a PyLabRobot liquid handling script based on natural language description.
-
-    Uses the comprehensive PyLabRobot tutorial database and Claude to generate
-    Python scripts for liquid handling tasks using the Hamilton STARBackend.
-    Focuses on pipetting, aspirating, dispensing, and liquid transfer operations.
-
-    Args:
-        prompt (str, optional): Natural language description of the liquid handling task
-        task_description (str, optional): Alternative parameter name for task description
-        verbose (bool): If True, return full response; if False, return formatted results
-        save_to_dir (str, optional): Directory to save the generated script. If provided,
-            the script will be saved as a .py file in this directory.
-
-    Returns:
-        dict: Dictionary containing:
-            - success (bool): Whether script generation was successful
-            - script (str): Generated Python script (if successful)
-            - description (str): Description of what the script does
-            - error (str): Error message (if failed)
-            - raw_response (str): Raw LLM response (if verbose)
-            - saved_path (str): Path to saved file (if save_to_dir provided and successful)
-
-    Example:
-        >>> result = generate_liquid_handling_script("Move 100μL of water from wells A1:A3 to B1:B3")
-        >>> print(result["script"])
-
-        >>> # Save script to file
-        >>> result = generate_liquid_handling_script(
-        ...     "Move 100μL of water from wells A1:A3 to B1:B3", save_to_dir="/path/to/scripts"
-        ... )
-        >>> print(f"Script saved to: {result['saved_path']}")
-    """
-    # Use either prompt or task_description
-    task_prompt = prompt or task_description
-
-    if not task_prompt:
-        return {"success": False, "error": "Either 'prompt' or 'task_description' parameter is required"}
-
-    try:
-        # Load PyLabRobot tutorial content (dynamic docs)
-        tutorial_content = _load_pylabrobot_tutorial_content("liquid")
-        if not tutorial_content:
-            return {"success": False, "error": "Failed to load PyLabRobot docs/tutorial content"}
-    except Exception as e:
-        return {"success": False, "error": f"Failed to load tutorial content: {str(e)}"}
-
-    # Create system prompt template
-    system_template = """You are an expert laboratory automation programmer specialized in PyLabRobot with Hamilton STARBackend liquid handling systems.
-
-Your task is to generate a complete, working Python script based on the user's natural language description of a liquid handling task.
-
-PYLABROBOT TUTORIAL CONTENT:
-{tutorial_content}
-
-Based on the tutorial content above and the user's request, generate a complete Python script that focuses on LIQUID HANDLING operations such as:
-
-1. Uses proper PyLabRobot imports and setup
-2. Configures the Hamilton STARBackend appropriately
-3. Sets up the deck layout with appropriate carriers, tip racks, and plates.
-4. Implements the requested liquid handling operations (aspirate/dispense/transfer)
-5. Includes proper tip handling and liquid level detection
-6. Includes proper error handling and resource cleanup
-7. Follows the tutorial content's syntax and example code as closely as possible.
-8. Use only available resources from the tutorial content.
-
-Extra Notes:
+def get_pylabrobot_documentation_liquid() -> str:
+    """Get the documentation for a specific section of the PyLabRobot tutorial."""
+    tutorial_content = """Notes:
 - Use hamilton_96_tiprack_1000uL_filter instead of HTF (deprecated). Note the capital L in uL.
 - Use Cor_96_wellplate_360ul_Fb instead of Corning_96_wellplate_360ul_Fb.
 - You must name all your plates, tip racks, and carriers.
 - Assign labware into carriers via slot assignment (tip_car[0] = tiprack). Assign plates to rails using lh.deck.assign_child_resource(plate_car, rails=14).
 - Rails must be between -4 and 32.
+- Make sure most liquid handling operations are done with async/await.
 - There are some methods that are not async, including lh.summary(). Do not use await for these methods.
+- When picking up tips with multiple channels, use a flat list of tips. Do not use a list of lists. """
+
+    tutorial_content += _load_pylabrobot_tutorial_content("liquid")
+
+    return tutorial_content
 
 
-Focus specifically on:
-- Pipetting operations
-- Liquid transfers between wells/plates
-- Serial dilutions
-- Multi-channel operations
-- Volume handling and accuracy
+def get_pylabrobot_documentation_material() -> str:
+    tutorial_content = _load_pylabrobot_tutorial_content("material")
 
-Your response should be a JSON object with the following fields:
-1. "script": The complete Python script as a string
-2. "description": A brief description of what the script accomplishes
-3. "requirements": List of any special requirements or setup needed
-4. "safety_notes": Any important safety considerations
-
-The script should be ready to run (assuming proper hardware setup) and should include:
-- Proper async/await usage
-- Resource setup and cleanup
-- Error handling
-- Comments explaining key steps
-
-Return ONLY the JSON object with no additional text."""
-
-    try:
-        # Get LLM instance
-        llm = get_llm()
-
-        # Format the system prompt with tutorial content
-        system_prompt = system_template.format(tutorial_content=tutorial_content)
-
-        # Create messages
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Generate a PyLabRobot liquid handling script for: {task_prompt}"},
-        ]
-
-        # Query the LLM
-        response = llm.invoke(messages)
-        llm_text = response.content.strip() if hasattr(response, "content") else str(response).strip()
-
-        # Try to parse JSON response using robust method from database.py
-        try:
-            # Find JSON boundaries (in case LLM adds explanations)
-            json_start = llm_text.find("{")
-            json_end = llm_text.rfind("}") + 1
-            if json_start >= 0 and json_end > json_start:
-                json_text = llm_text[json_start:json_end]
-            else:
-                json_text = llm_text
-
-            # Handle triple quotes by converting them to proper JSON strings
-            # Replace """ with proper JSON string escaping
-            json_text = re.sub(
-                r':\s*"""([^"]*(?:"(?!""")[^"]*)*)"""',
-                lambda m: ': "'
-                + m.group(1).replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
-                + '"',
-                json_text,
-                flags=re.DOTALL,
-            )
-
-            parsed_response = json.loads(json_text)
-
-            result = {
-                "success": True,
-                "script": parsed_response.get("script", ""),
-                "description": parsed_response.get("description", ""),
-                "requirements": parsed_response.get("requirements", []),
-                "safety_notes": parsed_response.get("safety_notes", ""),
-            }
-
-            # Save script to file if directory provided
-            if save_to_dir and result["script"]:
-                try:
-                    # Create directory if it doesn't exist
-                    os.makedirs(save_to_dir, exist_ok=True)
-
-                    # Generate filename with timestamp for uniqueness
-                    import datetime
-
-                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    filename = f"pylabrobot_liquid_handling_{timestamp}.py"
-
-                    # Ensure unique filename
-                    filepath = os.path.join(save_to_dir, filename)
-                    counter = 1
-                    while os.path.exists(filepath):
-                        name_parts = filename.rsplit(".", 1)
-                        filepath = os.path.join(save_to_dir, f"{name_parts[0]}_{counter}.{name_parts[1]}")
-                        counter += 1
-
-                    # Write the script to file
-                    with open(filepath, "w", encoding="utf-8") as f:
-                        f.write(result["script"])
-
-                    result["saved_path"] = filepath
-
-                except Exception as save_error:
-                    result["save_error"] = f"Failed to save script: {str(save_error)}"
-
-            if verbose:
-                result["raw_response"] = llm_text
-
-            return result
-
-        except (json.JSONDecodeError, KeyError, IndexError) as e:
-            return {
-                "success": False,
-                "error": f"Failed to parse LLM response: {str(e)}",
-                "raw_response": llm_text if verbose else None,
-            }
-
-    except Exception as e:
-        return {"success": False, "error": f"Failed to generate script: {str(e)}"}
-
-
-def pylabrobot_material_handling_script(
-    prompt: str = None,
-    task_description: str = None,
-    verbose: bool = True,
-    save_to_dir: str = None,
-) -> dict[str, Any]:
-    """Generate a PyLabRobot material handling script based on natural language description.
-
-    Uses the comprehensive PyLabRobot tutorial database and Claude to generate
-    Python scripts for material handling tasks using the Hamilton STARBackend iSWAP module.
-    Focuses on plate movement, gripper operations, and robotic manipulation.
-
-    Args:
-        prompt (str, optional): Natural language description of the material handling task
-        task_description (str, optional): Alternative parameter name for task description
-        verbose (bool): If True, return full response; if False, return formatted results
-        save_to_dir (str, optional): Directory to save the generated script. If provided,
-            the script will be saved as a .py file in this directory.
-
-    Returns:
-        dict: Dictionary containing:
-            - success (bool): Whether script generation was successful
-            - script (str): Generated Python script (if successful)
-            - description (str): Description of what the script does
-            - error (str): Error message (if failed)
-            - raw_response (str): Raw LLM response (if verbose)
-            - saved_path (str): Path to saved file (if save_to_dir provided and successful)
-
-    Example:
-        >>> result = generate_material_handling_script("Move plate from position A to position B")
-        >>> print(result["script"])
-
-        >>> # Save script to file
-        >>> result = generate_material_handling_script(
-        ...     "Move plate from position A to position B", save_to_dir="/path/to/scripts"
-        ... )
-        >>> print(f"Script saved to: {result['saved_path']}")
-    """
-    # Use either prompt or task_description
-    task_prompt = prompt or task_description
-
-    if not task_prompt:
-        return {"success": False, "error": "Either 'prompt' or 'task_description' parameter is required"}
-
-    try:
-        # Load PyLabRobot tutorial content (dynamic docs)
-        tutorial_content = _load_pylabrobot_tutorial_content("material")
-        if not tutorial_content:
-            return {"success": False, "error": "Failed to load PyLabRobot docs/tutorial content"}
-    except Exception as e:
-        return {"success": False, "error": f"Failed to load tutorial content: {str(e)}"}
-
-    # Create system prompt template focused on material handling
-    system_template = """You are an expert laboratory automation programmer specialized in PyLabRobot with Hamilton STARBackend material handling systems, particularly the iSWAP robotic gripper module.
-
-Your task is to generate a complete, working Python script based on the user's natural language description of a material handling task.
-
-PYLABROBOT TUTORIAL CONTENT:
-{tutorial_content}
-
-Based on the tutorial content above and the user's request, generate a complete Python script that focuses on MATERIAL HANDLING operations such as:
-
-1. Uses proper PyLabRobot imports and setup
-2. Configures the Hamilton STARBackend appropriately
-3. Sets up the deck layout with appropriate carriers, tip racks, and plates.
-4. Implements the requested liquid handling operations (aspirate/dispense/transfer)
-5. Includes proper tip handling and liquid level detection
-6. Includes proper error handling and resource cleanup
-7. Follows the tutorial content's syntax and example code as closely as possible.
-8. Use only available resources from the tutorial content.
-
-
-Focus specifically on:
-- Plate transfers and positioning
-- iSWAP gripper operations (open/close/rotate)
-- Safe movement protocols
-- Position calibration
-- Manual positioning when needed
-
-Your response should be a JSON object with the following fields:
-1. "script": The complete Python script as a string
-2. "description": A brief description of what the script accomplishes
-3. "requirements": List of any special requirements or setup needed
-4. "safety_notes": Any important safety considerations
-
-The script should be ready to run (assuming proper hardware setup) and should include:
-- Proper async/await usage
-- Resource setup and cleanup
-- Error handling
-- Comments explaining key steps
-- iSWAP-specific safety protocols
-
-Return ONLY the JSON object with no additional text."""
-
-    try:
-        # Get LLM instance
-        llm = get_llm()
-
-        # Format the system prompt with tutorial content
-        system_prompt = system_template.format(tutorial_content=tutorial_content)
-
-        # Create messages
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Generate a PyLabRobot material handling script for: {task_prompt}"},
-        ]
-
-        # Query the LLM
-        response = llm.invoke(messages)
-        llm_text = response.content.strip() if hasattr(response, "content") else str(response).strip()
-
-        # Try to parse JSON response using robust method from database.py
-        try:
-            # Find JSON boundaries (in case LLM adds explanations)
-            json_start = llm_text.find("{")
-            json_end = llm_text.rfind("}") + 1
-            if json_start >= 0 and json_end > json_start:
-                json_text = llm_text[json_start:json_end]
-            else:
-                json_text = llm_text
-
-            # Handle triple quotes by converting them to proper JSON strings
-            # Replace """ with proper JSON string escaping
-            json_text = re.sub(
-                r':\s*"""([^"]*(?:"(?!""")[^"]*)*)"""',
-                lambda m: ': "'
-                + m.group(1).replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
-                + '"',
-                json_text,
-                flags=re.DOTALL,
-            )
-
-            parsed_response = json.loads(json_text)
-
-            result = {
-                "success": True,
-                "script": parsed_response.get("script", ""),
-                "description": parsed_response.get("description", ""),
-                "requirements": parsed_response.get("requirements", []),
-                "safety_notes": parsed_response.get("safety_notes", ""),
-            }
-
-            # Save script to file if directory provided
-            if save_to_dir and result["script"]:
-                try:
-                    # Create directory if it doesn't exist
-                    os.makedirs(save_to_dir, exist_ok=True)
-
-                    # Generate filename with timestamp for uniqueness
-                    import datetime
-
-                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    filename = f"pylabrobot_material_handling_{timestamp}.py"
-
-                    # Ensure unique filename
-                    filepath = os.path.join(save_to_dir, filename)
-                    counter = 1
-                    while os.path.exists(filepath):
-                        name_parts = filename.rsplit(".", 1)
-                        filepath = os.path.join(save_to_dir, f"{name_parts[0]}_{counter}.{name_parts[1]}")
-                        counter += 1
-
-                    # Write the script to file
-                    with open(filepath, "w", encoding="utf-8") as f:
-                        f.write(result["script"])
-
-                    result["saved_path"] = filepath
-
-                except Exception as save_error:
-                    result["save_error"] = f"Failed to save script: {str(save_error)}"
-
-            if verbose:
-                result["raw_response"] = llm_text
-
-            return result
-
-        except (json.JSONDecodeError, KeyError, IndexError) as e:
-            return {
-                "success": False,
-                "error": f"Failed to parse LLM response: {str(e)}",
-                "raw_response": llm_text if verbose else None,
-            }
-
-    except Exception as e:
-        return {"success": False, "error": f"Failed to generate script: {str(e)}"}
+    return tutorial_content
 
 
 def test_pylabrobot_script(
@@ -852,20 +460,32 @@ except ImportError:
     pass  # Tracking not available in this PyLabRobot version
 
 """
-        # Insert after imports but before main function
-        lines = modified_script.split("\n")
-        insert_index = 0
-        for i, line in enumerate(lines):
-            if (
-                line.strip().startswith("async def")
-                or line.strip().startswith("def")
-                or line.strip().startswith("if __name__")
-            ):
-                insert_index = i
-                break
+    else:
+        tracking_setup = """
+# Disable PyLabRobot tracking for testing
+try:
+    from pylabrobot.resources import set_tip_tracking, set_volume_tracking
+    set_tip_tracking(False)
+    set_volume_tracking(False)
+except ImportError:
+    pass  # Tracking not available in this PyLabRobot version
 
-        lines.insert(insert_index, tracking_setup)
-        modified_script = "\n".join(lines)
+"""
+
+    # Insert after imports but before main function
+    lines = modified_script.split("\n")
+    insert_index = 0
+    for i, line in enumerate(lines):
+        if (
+            line.strip().startswith("async def")
+            or line.strip().startswith("def")
+            or line.strip().startswith("if __name__")
+        ):
+            insert_index = i
+            break
+
+    lines.insert(insert_index, tracking_setup)
+    modified_script = "\n".join(lines)
 
     return modified_script
 
@@ -980,10 +600,8 @@ def _run_script_with_monitoring(script_path: str) -> dict[str, Any]:
             else:
                 namespace["main"]()
 
-        # Try to extract execution summary (this would need to be enhanced
-        # based on actual PyLabRobot API for getting execution statistics)
-        summary["operations_performed"] = 1  # Placeholder
-
+        # Execution summary collection can be added here in the future once
+        # PyLabRobot exposes reliable runtime statistics.
     except Exception as e:
         raise Exception(f"Script execution error: {str(e)}") from e
 
