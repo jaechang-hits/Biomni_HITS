@@ -7,4 +7,5 @@ pip install pybiomart
 pip install fair-esm
 pip install nnunet nibabel nilearn
 pip install mi-googlesearch-python
+pip install git+https://github.com/pylabrobot/pylabrobot.git
 conda install weasyprint
