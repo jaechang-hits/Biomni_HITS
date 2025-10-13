@@ -260,10 +260,10 @@ default_config.source = "Anthropic"
 
 # Agent reasoning uses Biomni-R0 served via SGLang (OpenAI-compatible API)
 agent = A1(
-    llm="biomni/Biomni-R0-32B-Preview",# model name served by your SGLang server
-    source="Custom",                   # use custom OpenAI-compatible endpoint
+    llm="biomni/Biomni-R0-32B-Preview",
+    source="Custom",
     base_url="http://localhost:30000/v1",
-    api_key="EMPTY",                   # SGLang often doesn't require a real key
+    api_key="EMPTY",
 )
 
 agent.go("Plan a CRISPR screen to identify genes regulating T cell exhaustion")
