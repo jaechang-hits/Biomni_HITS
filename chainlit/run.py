@@ -85,7 +85,7 @@ def _resolve_biomni_data_path() -> str:
 LLM_MODEL = "gemini-3-pro-preview"
 # LLM_MODEL = "grok-4-fast"
 BIOMNI_DATA_PATH = _resolve_biomni_data_path()
-PUBLIC_DIR = os.path.join(os.getcwd(), "public")
+PUBLIC_DIR = os.path.join(os.path.dirname(CURRENT_ABS_DIR), "public")
 CHAINLIT_DB_PATH = os.path.join(CURRENT_ABS_DIR, "chainlit.db")
 STREAMING_MAX_TIMEOUT = 3600  # Maximum streaming timeout in seconds (1 hour)
 
@@ -1464,7 +1464,7 @@ def _detect_sar_report_and_add_button(content: str) -> str:
 
     try:
         shutil.copy2(report_filename, new_file_path)
-        public_url = f"/chainlit/public/{new_filename}"
+        public_url = f"/public/{new_filename}"
         
         # Add button HTML
         # Using inline styles for a green button
