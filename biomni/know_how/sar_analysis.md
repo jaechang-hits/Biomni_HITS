@@ -48,10 +48,17 @@ You are an expert in Cheminformatics and Python. Perform a SAR (Structure-Activi
 
 4.  **Image Generation & Alignment (Strict Coordinate Extraction):**
     *   **Goal:** Ensure Core and R-groups are visually perfectly superimposed on the Original Molecule.
-    *   **Drawing Style:** When drawing molecules, always use ACS1996 mode for consistent and professional visualization:
+    *   **Drawing Style:** When drawing molecules, always use DrawMoleculeACS1996 for consistent and professional visualization:
         ```python
-        options = drawer.drawOptions()
-        options.setACS1996Mode(True)
+        from rdkit.Chem.Draw import rdMolDraw2D
+
+        rdMolDraw2D.DrawMoleculeACS1996(drawer, mol)
+
+        drawer.FinishDrawing()
+        svg = drawer.GetDrawingText()
+        
+        svg = svg.replace("width='", "width='100%' data-original-width='")
+        svg = svg.replace("height='", "height='100%' data-original-height='")
         ```
     *   **Reference Implementation:** Use this specific alignment logic to guarantee perfect overlay:
         ```python
