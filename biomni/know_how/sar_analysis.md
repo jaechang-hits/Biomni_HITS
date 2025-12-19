@@ -111,7 +111,7 @@ You are an expert in Cheminformatics and Python. Perform a SAR (Structure-Activi
 5.  **HTML Output (`sar_analysis_report.html`):**
     *   **Design:** Create a clean, modern, and visually appealing HTML page using CSS styling. Use modern CSS features (e.g., subtle shadows, smooth transitions, clean typography, proper color schemes, responsive design) to enhance readability and visual appeal.
     *   **Table Structure:** `Compound Key`, `Activity`, `Original Molecule`, `Core`, and variable R-groups.
-    *   **Activity Heatmap:** Apply a background color gradient to Activity cells (Green for low values/high potency, Red for high values/low potency).
+    *   **Activity Heatmap:** Apply a background color gradient to Activity cells using a logarithmic scale (Green for low values/high potency, Red for high values/low potency).
     *   **Image Handling:**
         *   Convert molecules to Base64 PNG strings.
         *   **Validation:** Check `if base64_str and len(base64_str) > 100`. Only embed valid images; otherwise, use a text placeholder (`<td>No Image</td>`).
