@@ -52,6 +52,7 @@ You are an expert in Cheminformatics and Python. Perform a SAR (Structure-Activi
         ```python
         from rdkit.Chem.Draw import rdMolDraw2D
 
+        drawer = rdMolDraw2D.MolDraw2DSVG(-1, -1)
         rdMolDraw2D.DrawMoleculeACS1996(drawer, mol)
 
         drawer.FinishDrawing()

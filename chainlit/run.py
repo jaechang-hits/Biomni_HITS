@@ -801,6 +801,10 @@ async def _process_agent_response(agent_input: list, message_history: list):
         final_message = _detect_image_name_and_move_to_public(final_message)
         final_message = _detect_sar_report_and_add_button(final_message)
 
+        # Add a small delay to ensure the step is fully closed in the UI
+        await asyncio.sleep(0.1)
+        logger.info("[RESPONSE] Sending final message to UI")
+
         await cl.Message(content=final_message).send()
 
         print(os.getcwd())
