@@ -1,6 +1,8 @@
 import chainlit as cl
 import sys
 import os
+import yaml
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from biomni.agent import A1_HITS
@@ -295,17 +297,38 @@ def get_data_layer():
     )
 
 
+def _load_credentials() -> dict:
+    """Load user credentials from YAML file.
+
+    Returns:
+        dict: Mapping of (username, password) -> identifier
+    """
+    credentials_path = os.path.join(CURRENT_ABS_DIR, "credentials.yaml")
+    valid_logins = {}
+
+    try:
+        with open(credentials_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+
+        for user in data.get("users", []):
+            username = user.get("username")
+            password = user.get("password")
+            identifier = user.get("identifier", username)
+            if username and password:
+                valid_logins[(username, password)] = identifier
+
+    except FileNotFoundError:
+        logger.warning(f"Credentials file not found: {credentials_path}")
+    except Exception as e:
+        logger.error(f"Error loading credentials: {e}")
+
+    return valid_logins
+
+
 @cl.password_auth_callback
 def auth_callback(username: str, password: str):
-    # Fetch the user matching username from your database
-    # and compare the hashed password with the value stored in the database
-    # Support both username and email format for login
-    valid_logins = {
-        ("admin", "admin"): "admin",
-        ("admin@example.com", "admin"): "admin@example.com",
-        ("admin@biomni.com", "admin"): "admin@biomni.com",
-        ("jslink", "5fdf7e4a-6632-48b1-a9c8-b79d9a9be2e0"): "jslink",
-    }
+    # Load credentials from YAML file
+    valid_logins = _load_credentials()
 
     identifier = valid_logins.get((username, password))
 
@@ -402,6 +425,269 @@ async def resume_chat():
         )
 
 
+# Feedback user identifier (must match credentials.yaml)
+FEEDBACK_USER_IDENTIFIER = "feedback"
+
+
+async def _get_or_create_feedback_user(cursor) -> str:
+    """Get feedback user ID from database, create if not exists.
+    
+    Returns:
+        str: The feedback user's database ID
+    """
+    import uuid
+    import json
+    from datetime import datetime
+    
+    cursor.execute(
+        'SELECT id FROM users WHERE identifier = ?',
+        (FEEDBACK_USER_IDENTIFIER,)
+    )
+    row = cursor.fetchone()
+    
+    if row:
+        return row[0]
+    
+    # Create feedback user if not exists
+    feedback_user_id = str(uuid.uuid4())
+    metadata = json.dumps({"role": "admin", "provider": "credentials"})
+    created_at = datetime.utcnow().isoformat()
+    
+    cursor.execute(
+        'INSERT INTO users (id, identifier, metadata, createdAt) VALUES (?, ?, ?, ?)',
+        (feedback_user_id, FEEDBACK_USER_IDENTIFIER, metadata, created_at)
+    )
+    
+    return feedback_user_id
+
+
+async def _copy_thread_to_feedback_user(
+    original_thread_id: str,
+    feedback_value: int,
+    feedback_comment: str | None,
+    feedback_for_id: str
+):
+    """Copy a thread and all its data to the feedback user account.
+    
+    Args:
+        original_thread_id: The original thread ID to copy
+        feedback_value: The feedback value (0 or 1)
+        feedback_comment: Optional feedback comment
+        feedback_for_id: The step ID that received the feedback
+    """
+    import uuid
+    import json
+    from datetime import datetime
+    
+    db_path = os.path.abspath(CHAINLIT_DB_PATH)
+    
+    try:
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Get or create feedback user
+        feedback_user_id = await _get_or_create_feedback_user(cursor)
+        conn.commit()
+        
+        # Get original thread data
+        cursor.execute(
+            'SELECT id, createdAt, name, userId, userIdentifier, tags, metadata FROM threads WHERE id = ?',
+            (original_thread_id,)
+        )
+        thread_row = cursor.fetchone()
+        
+        if not thread_row:
+            logger.warning(f"[FEEDBACK] Thread not found: {original_thread_id}")
+            conn.close()
+            return
+        
+        # Create new thread ID
+        new_thread_id = str(uuid.uuid4())
+        original_user_identifier = thread_row[4] or "unknown"
+        
+        # Parse and modify metadata to include feedback info and original user
+        original_metadata = {}
+        if thread_row[6]:
+            try:
+                original_metadata = json.loads(thread_row[6])
+            except:
+                pass
+        
+        new_metadata = {
+            **original_metadata,
+            "copied_from_thread": original_thread_id,
+            "copied_from_user": original_user_identifier,
+            "feedback_value": feedback_value,
+            "feedback_comment": feedback_comment,
+            "copied_at": datetime.utcnow().isoformat()
+        }
+        
+        # Create thread name with feedback indicator and original user
+        original_name = thread_row[2] or "Untitled"
+        feedback_emoji = "👍" if feedback_value == 1 else "👎"
+        new_thread_name = f"[{feedback_emoji} from {original_user_identifier}] {original_name}"
+        
+        # Insert new thread with feedback user as owner
+        cursor.execute(
+            '''INSERT INTO threads (id, createdAt, name, userId, userIdentifier, tags, metadata)
+               VALUES (?, ?, ?, ?, ?, ?, ?)''',
+            (
+                new_thread_id,
+                thread_row[1],  # createdAt
+                new_thread_name,
+                feedback_user_id,
+                FEEDBACK_USER_IDENTIFIER,
+                thread_row[5],  # tags
+                json.dumps(new_metadata)
+            )
+        )
+        
+        # Copy all steps - need to map old step IDs to new ones for parent relationships
+        cursor.execute(
+            '''SELECT id, name, type, threadId, parentId, streaming, waitForAnswer, isError,
+                      metadata, tags, input, output, createdAt, command, start, end,
+                      generation, showInput, language, indent, defaultOpen
+               FROM steps WHERE threadId = ?''',
+            (original_thread_id,)
+        )
+        steps = cursor.fetchall()
+        
+        step_id_map = {}  # old_id -> new_id
+        
+        for step in steps:
+            old_step_id = step[0]
+            new_step_id = str(uuid.uuid4())
+            step_id_map[old_step_id] = new_step_id
+        
+        # Insert steps with mapped IDs
+        for step in steps:
+            old_step_id = step[0]
+            new_step_id = step_id_map[old_step_id]
+            old_parent_id = step[4]
+            new_parent_id = step_id_map.get(old_parent_id) if old_parent_id else None
+            
+            cursor.execute(
+                '''INSERT INTO steps (id, name, type, threadId, parentId, streaming, waitForAnswer,
+                                      isError, metadata, tags, input, output, createdAt, command,
+                                      start, end, generation, showInput, language, indent, defaultOpen)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (
+                    new_step_id,
+                    step[1],   # name
+                    step[2],   # type
+                    new_thread_id,
+                    new_parent_id,
+                    step[5],   # streaming
+                    step[6],   # waitForAnswer
+                    step[7],   # isError
+                    step[8],   # metadata
+                    step[9],   # tags
+                    step[10],  # input
+                    step[11],  # output
+                    step[12],  # createdAt
+                    step[13],  # command
+                    step[14],  # start
+                    step[15],  # end
+                    step[16],  # generation
+                    step[17],  # showInput
+                    step[18],  # language
+                    step[19],  # indent
+                    step[20],  # defaultOpen
+                )
+            )
+        
+        # Copy all elements
+        cursor.execute(
+            '''SELECT id, threadId, type, url, chainlitKey, name, display, objectKey,
+                      size, page, language, forId, mime, props
+               FROM elements WHERE threadId = ?''',
+            (original_thread_id,)
+        )
+        elements = cursor.fetchall()
+        
+        for element in elements:
+            new_element_id = str(uuid.uuid4())
+            old_for_id = element[11]
+            new_for_id = step_id_map.get(old_for_id) if old_for_id else None
+            
+            cursor.execute(
+                '''INSERT INTO elements (id, threadId, type, url, chainlitKey, name, display,
+                                         objectKey, size, page, language, forId, mime, props)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (
+                    new_element_id,
+                    new_thread_id,
+                    element[2],   # type
+                    element[3],   # url
+                    element[4],   # chainlitKey
+                    element[5],   # name
+                    element[6],   # display
+                    element[7],   # objectKey
+                    element[8],   # size
+                    element[9],   # page
+                    element[10],  # language
+                    new_for_id,
+                    element[12],  # mime
+                    element[13],  # props
+                )
+            )
+        
+        # Copy the feedback itself
+        new_feedback_id = str(uuid.uuid4())
+        new_for_id = step_id_map.get(feedback_for_id, feedback_for_id)
+        
+        cursor.execute(
+            '''INSERT INTO feedbacks (id, forId, threadId, value, comment)
+               VALUES (?, ?, ?, ?, ?)''',
+            (new_feedback_id, new_for_id, new_thread_id, feedback_value, feedback_comment)
+        )
+        
+        conn.commit()
+        conn.close()
+        
+        # Copy chainlit_logs directory
+        original_log_dir = os.path.join(CURRENT_ABS_DIR, "chainlit_logs", original_thread_id)
+        new_log_dir = os.path.join(CURRENT_ABS_DIR, "chainlit_logs", new_thread_id)
+        
+        if os.path.exists(original_log_dir):
+            shutil.copytree(original_log_dir, new_log_dir)
+            logger.info(f"[FEEDBACK] Copied logs from {original_log_dir} to {new_log_dir}")
+        
+        logger.info(
+            f"[FEEDBACK] Successfully copied thread {original_thread_id} to feedback user as {new_thread_id}"
+        )
+        logger.info(f"[FEEDBACK] Copied {len(steps)} steps and {len(elements)} elements")
+        
+    except Exception as e:
+        logger.error(f"[FEEDBACK] Error copying thread to feedback user: {e}", exc_info=True)
+
+
+@cl.on_feedback
+async def on_feedback(feedback):
+    """Handle user feedback events.
+    
+    When a user leaves feedback (thumbs up/down), copy the entire conversation
+    session to the feedback account for review.
+    """
+    logger.info(f"[FEEDBACK] Received feedback: value={feedback.value}, forId={feedback.forId}, "
+                f"threadId={feedback.threadId}, comment={feedback.comment}")
+    
+    if not feedback.threadId:
+        logger.warning("[FEEDBACK] No threadId in feedback, skipping copy")
+        return
+    
+    # Copy the thread to feedback user account
+    await _copy_thread_to_feedback_user(
+        original_thread_id=feedback.threadId,
+        feedback_value=feedback.value,
+        feedback_comment=feedback.comment,
+        feedback_for_id=feedback.forId
+    )
+    
+    logger.info(f"[FEEDBACK] Thread {feedback.threadId} copied to feedback account")
+
+
 @cl.on_audio_start
 async def on_audio_start():
     """Handle start of audio recording.
@@ -409,6 +695,11 @@ async def on_audio_start():
     This function is called when user starts recording.
     Returns True to allow recording, False to reject.
     """
+    # Check if audio input is enabled
+    if not default_config.enable_audio_input:
+        logger.info("[AUDIO] Audio input is disabled")
+        return False
+
     # Initialize silence detection state (like reference code)
     cl.user_session.set("silent_duration_ms", 0)
     cl.user_session.set("is_speaking", False)
@@ -432,6 +723,10 @@ async def on_audio_chunk(chunk: cl.InputAudioChunk):
     Includes silence detection to auto-stop recording after prolonged silence.
     Based on reference implementation from Chainlit cookbook.
     """
+    # Skip if audio input is disabled
+    if not default_config.enable_audio_input:
+        return
+
     # Get audio chunks list and append current chunk as numpy array
     audio_chunks = cl.user_session.get("audio_chunks")
     if audio_chunks is not None:
@@ -623,6 +918,33 @@ async def _process_user_message(user_message: cl.Message) -> dict:
         ".tif",
     }
 
+    # PDF file extension
+    pdf_extensions = {".pdf"}
+
+    # Video file extensions
+    video_extensions = {
+        ".mp4",
+        ".mov",
+        ".avi",
+        ".webm",
+        ".mkv",
+        ".flv",
+        ".wmv",
+        ".m4v",
+    }
+
+    # Audio file extensions
+    audio_extensions = {
+        ".mp3",
+        ".wav",
+        ".flac",
+        ".ogg",
+        ".m4a",
+        ".aac",
+        ".wma",
+        ".opus",
+    }
+
     # Get current uploaded files list from session
     uploaded_files = cl.user_session.get("uploaded_files", [])
 
@@ -634,8 +956,10 @@ async def _process_user_message(user_message: cl.Message) -> dict:
         if file.name not in uploaded_files:
             uploaded_files.append(file.name)
 
-        # Check if it's an image file
+        # Check file extension
         file_ext = os.path.splitext(file.name)[1].lower()
+
+        # Process image files
         if file_ext in image_extensions:
             try:
                 # Extract image resolution
@@ -674,6 +998,92 @@ async def _process_user_message(user_message: cl.Message) -> dict:
                     user_prompt += f"\n - user uploaded image file: {file.name}\n"
             except Exception as e:
                 print(f"Error processing image {file.name}: {e}")
+                user_prompt += f"\n - user uploaded data file: {file.name}\n"
+        # Process PDF files - encode as base64 like images (Gemini API supports PDF natively)
+        elif file_ext in pdf_extensions:
+            try:
+                # Read PDF and encode to base64 (same way as images)
+                with open(file.path, "rb") as f:
+                    pdf_data = base64.b64encode(f.read()).decode("utf-8")
+
+                # Add PDF as base64 encoded data with application/pdf MIME type
+                images.append(
+                    {
+                        "name": file.name,
+                        "data": f"data:application/pdf;base64,{pdf_data}",
+                    }
+                )
+
+                # Get PDF page count for info (optional, for logging)
+                try:
+                    import PyPDF2
+
+                    with open(file.path, "rb") as pdf_file:
+                        pdf_reader = PyPDF2.PdfReader(pdf_file)
+                        num_pages = len(pdf_reader.pages)
+                        user_prompt += f"\n - user uploaded PDF file: {file.name} ({num_pages} pages)\n"
+                except Exception:
+                    user_prompt += f"\n - user uploaded PDF file: {file.name}\n"
+            except Exception as e:
+                print(f"Error processing PDF {file.name}: {e}")
+                user_prompt += f"\n - user uploaded data file: {file.name}\n"
+        # Process video files - encode as base64 (Gemini API supports video natively)
+        elif file_ext in video_extensions:
+            try:
+                # Read video and encode to base64
+                with open(file.path, "rb") as f:
+                    video_data = base64.b64encode(f.read()).decode("utf-8")
+
+                # Determine MIME type for video
+                video_mime_type_map = {
+                    ".mp4": "video/mp4",
+                    ".mov": "video/quicktime",
+                    ".avi": "video/x-msvideo",
+                    ".webm": "video/webm",
+                    ".mkv": "video/x-matroska",
+                    ".flv": "video/x-flv",
+                    ".wmv": "video/x-ms-wmv",
+                    ".m4v": "video/mp4",
+                }
+                mime_type = video_mime_type_map.get(file_ext, "video/mp4")
+
+                # Add video as base64 encoded data
+                images.append(
+                    {"name": file.name, "data": f"data:{mime_type};base64,{video_data}"}
+                )
+
+                user_prompt += f"\n - user uploaded video file: {file.name}\n"
+            except Exception as e:
+                print(f"Error processing video {file.name}: {e}")
+                user_prompt += f"\n - user uploaded data file: {file.name}\n"
+        # Process audio files - encode as base64 (Gemini API supports audio natively)
+        elif file_ext in audio_extensions:
+            try:
+                # Read audio and encode to base64
+                with open(file.path, "rb") as f:
+                    audio_data = base64.b64encode(f.read()).decode("utf-8")
+
+                # Determine MIME type for audio
+                audio_mime_type_map = {
+                    ".mp3": "audio/mpeg",
+                    ".wav": "audio/wav",
+                    ".flac": "audio/flac",
+                    ".ogg": "audio/ogg",
+                    ".m4a": "audio/mp4",
+                    ".aac": "audio/aac",
+                    ".wma": "audio/x-ms-wma",
+                    ".opus": "audio/opus",
+                }
+                mime_type = audio_mime_type_map.get(file_ext, "audio/mpeg")
+
+                # Add audio as base64 encoded data
+                images.append(
+                    {"name": file.name, "data": f"data:{mime_type};base64,{audio_data}"}
+                )
+
+                user_prompt += f"\n - user uploaded audio file: {file.name}\n"
+            except Exception as e:
+                print(f"Error processing audio {file.name}: {e}")
                 user_prompt += f"\n - user uploaded data file: {file.name}\n"
         else:
             user_prompt += f"\n - user uploaded data file: {file.name}\n"
@@ -815,12 +1225,15 @@ async def _process_agent_response(agent_input: list, message_history: list):
             f.write(raw_full_message + "\n")
         message_history.append({"role": "assistant", "content": raw_full_message})
 
-        # Save conversation to memory
-        try:
-            user_message_content = message_history[-2]["content"] # The message before the one we just appended
-            save_conversation(user_message_content, final_message)
-        except Exception as e:
-            logger.error(f"Failed to save conversation to memory: {e}")
+        # Save conversation to memory (only if persistent memory is enabled)
+        if default_config.use_persistent_memory:
+            try:
+                user_message_content = message_history[-2][
+                    "content"
+                ]  # The message before the one we just appended
+                save_conversation(user_message_content, final_message)
+            except Exception as e:
+                logger.error(f"Failed to save conversation to memory: {e}")
 
     except asyncio.CancelledError:
         # Handle stop button click
@@ -1398,25 +1811,25 @@ def _detect_image_name_and_move_to_public(
 
         # Check if file exists
         if not os.path.exists(image_path):
-             # Try to find it relative to the current working directory (chainlit_logs/thread_id)
-             # or relative to the project root (CURRENT_ABS_DIR)
-            
+            # Try to find it relative to the current working directory (chainlit_logs/thread_id)
+            # or relative to the project root (CURRENT_ABS_DIR)
+
             # 1. Check relative to CWD (already done by exists check if path is relative, but explicit check for absolute path construction might be needed)
             cwd_path = os.path.abspath(image_path)
             if os.path.exists(cwd_path):
                 image_path = cwd_path
             else:
                 # 2. Check relative to CURRENT_ABS_DIR (project root where run.py is, or parent of it)
-                # Note: CURRENT_ABS_DIR in this file is chainlit/ directory. 
-                # But the agent execution happens in chainlit_logs/{thread_id}. 
+                # Note: CURRENT_ABS_DIR in this file is chainlit/ directory.
+                # But the agent execution happens in chainlit_logs/{thread_id}.
                 # Sometimes paths are relative to project root.
-                
+
                 # Try relative to project root (parent of chainlit dir)
                 project_root = os.path.dirname(CURRENT_ABS_DIR)
                 root_path = os.path.join(project_root, image_path)
                 if os.path.exists(root_path):
                     image_path = root_path
-                
+
         if not os.path.exists(image_path):
             return match.group(0)
 
