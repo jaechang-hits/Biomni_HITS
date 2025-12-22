@@ -22,7 +22,7 @@ You are an expert in Cheminformatics and Python. Perform a SAR (Structure-Activi
 
 **Task Requirements:**
 
-1.  **Data Loading:** Load the CSV file (`Compound Key`, `Smiles`, `Standard Value`).
+1.  **Data Loading:** Load the CSV file. Do not assume fixed column names. Instead, inspect the dataframe (e.g., using `df.head()`) to automatically identify columns for Compound Key (e.g., 'Compound Key', 'ID', 'Name'), Activity (e.g., 'Standard Value', 'IC50', 'Activity'), and SMILES (e.g., 'Smiles', 'SMILES', 'Structure').
 
 2.  **Core Identification (MCS):**
     *   Use `rdFMCS.FindMCS` to find a significant common scaffold.
@@ -62,6 +62,10 @@ You are an expert in Cheminformatics and Python. Perform a SAR (Structure-Activi
         svg = svg.replace("height='", "height='100%' data-original-height='")
         ```
     *   **Reference Implementation:** Use this specific alignment logic to guarantee perfect overlay:
+        ```python
+        matches, unmatched_indices = rdRGroupDecomposition.RGroupDecompose([core_mol], mols, asSmiles=False, asRows=False)
+        ```
+
         ```python
         def align_substructure_to_parent(sub, parent):
             if not sub or not parent: return False
@@ -109,13 +113,23 @@ You are an expert in Cheminformatics and Python. Perform a SAR (Structure-Activi
              AllChem.Compute2DCoords(fragment)
         ```
 
+        ```python
+        match_core = matches['Core'][i]
+        align_substructure_to_parent(this_core, mol)
+        core_img = mol_to_base64(this_core)
+        ```
+
 5.  **HTML Output (`sar_analysis_report.html`):**
-    *   **Design:** Create a clean, modern, and visually appealing HTML page using CSS styling. Use modern CSS features (e.g., subtle shadows, smooth transitions, clean typography, proper color schemes, responsive design) to enhance readability and visual appeal.
+    *   **Design:** Create a clean, modern, and visually appealing HTML page using CSS styling. Use modern CSS features (e.g., subtle shadows, smooth transitions, clean typography, proper color schemes, responsive design) to enhance readability and visual appeal. **Crucially, ensure that the table column widths are NOT determined by the length of the header text. Use CSS (e.g., `table-layout: fixed` or setting `min-width`/`width` on `th`/`td`) to force appropriate widths, especially for columns containing images (Original, Core, R-groups), ensuring they are spacious and uniform.**
     *   **Table Structure:** `Compound Key`, `Activity`, `Original Molecule`, `Core`, and variable R-groups.
     *   **Activity Heatmap:** Apply a background color gradient to Activity cells using a logarithmic scale (Green for low values/high potency, Red for high values/low potency).
     *   **Image Handling:**
         *   Convert molecules to Base64 PNG strings.
         *   **Validation:** Check `if base64_str and len(base64_str) > 100`. Only embed valid images; otherwise, use a text placeholder (`<td>No Image</td>`).
+    *   **Interactive Sorting:**
+        *   Add a "Toggle Sort Order" button to the HTML page.
+        *   **Functionality:** Clicking the button cycles through three views: **Default View** (original CSV order), **Activity Ascending View** (sorted by Activity value from low to high), and **Activity Descending View** (sorted by Activity value from high to low).
+        *   **Implementation:** Use JavaScript to handle the sorting logic on the client side. Ensure the Activity column values are parsed as numbers for correct sorting.
     *   **Summary:** Include a brief text summary of SAR findings (correlation between R-groups and activity).
 
 6.  **Analysis Text Output:**
