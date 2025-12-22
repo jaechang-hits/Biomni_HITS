@@ -83,6 +83,7 @@ def _resolve_biomni_data_path() -> str:
 
 # Configuration
 LLM_MODEL = "gemini-3-pro-preview"
+# LLM_MODEL = "claude-sonnet-4-5-20250929-v1:0"
 # LLM_MODEL = "grok-4-fast"
 BIOMNI_DATA_PATH = _resolve_biomni_data_path()
 PUBLIC_DIR = os.path.join(os.path.dirname(CURRENT_ABS_DIR), "public")
@@ -951,12 +952,14 @@ async def _handle_message_stream(message_stream, chainlit_step, sync_generator):
             step_message += chunk_content
 
             # Remove heartbeat message if present (new chunk arrived!)
+            had_heartbeat = False
             if last_heartbeat_msg[0]:
                 logger.debug("[STREAM] Removing heartbeat message (new chunk arrived)")
                 current_output = chainlit_step.output or ""
                 if current_output.endswith(last_heartbeat_msg[0]):
                     chainlit_step.output = current_output[: -len(last_heartbeat_msg[0])]
                 last_heartbeat_msg[0] = ""  # Clear heartbeat message
+                had_heartbeat = True
 
             # Format and detect images
             formatted_text = _modify_chunk(raw_full_message)
@@ -965,17 +968,19 @@ async def _handle_message_stream(message_stream, chainlit_step, sync_generator):
             )
 
             # Only stream if changed
-            if formatted_text != last_formatted_text:
+            if formatted_text != last_formatted_text or had_heartbeat:
                 prev_output = last_formatted_text
 
-                if prev_output and formatted_text.startswith(prev_output):
+                if not had_heartbeat and prev_output and formatted_text.startswith(prev_output):
                     delta = formatted_text[len(prev_output) :]
+                    is_sequence = False
                 else:
                     delta = formatted_text
+                    is_sequence = True
 
-                if delta:
+                if delta or is_sequence:
                     # This await also checks for CancelledError
-                    await chainlit_step.stream_token(delta)
+                    await chainlit_step.stream_token(delta, is_sequence=is_sequence)
                     chainlit_step.output = formatted_text
                     last_formatted_text = formatted_text
 
