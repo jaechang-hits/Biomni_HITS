@@ -84,11 +84,24 @@ RUN mamba run -n ${CONDA_ENV} pip install -e /app/biomni_hits/ && \
 # ============================================
 # 컨테이너 시작 시 자동으로 가상환경 활성화
 # ============================================
+# PATH 설정으로 가상환경 바이너리 우선 사용
+ENV PATH="/opt/conda/envs/${CONDA_ENV}/bin:$PATH"
+ENV CONDA_DEFAULT_ENV=${CONDA_ENV}
+
+# Interactive bash 세션을 위한 설정
 RUN mamba init bash && \
     echo "mamba activate ${CONDA_ENV}" >> ~/.bashrc
+
+# Entrypoint 스크립트 생성 (비-interactive 실행도 지원)
+RUN echo '#!/bin/bash\n\
+source /opt/conda/etc/profile.d/conda.sh\n\
+source /opt/conda/etc/profile.d/mamba.sh\n\
+mamba activate ${CONDA_ENV}\n\
+exec "$@"' > /entrypoint.sh && chmod +x /entrypoint.sh
 
 # Expose common ports (Jupyter, Chainlit, etc.)
 EXPOSE 8888 8000 7860
 
-# Default command (bash will auto-activate the environment)
+# Entrypoint로 환경 활성화 후 명령 실행
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bash"]
