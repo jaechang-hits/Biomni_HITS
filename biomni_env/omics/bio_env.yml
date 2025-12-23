@@ -62,7 +62,7 @@ dependencies:
   - scikit-learn
   
   # NLP/LLM tools
-  - transformers
+  - transformers>=4.40,<4.48  # Pin to avoid tokenizers 0.22.2 resolution issue
   - sentencepiece
   
   # LangChain ecosystem
