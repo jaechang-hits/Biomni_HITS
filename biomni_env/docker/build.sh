@@ -39,8 +39,9 @@ done
 echo "Building Docker image: ${IMAGE_NAME}:${IMAGE_TAG}"
 echo ""
 
-# Docker 이미지 빌드
+# Docker 이미지 빌드 (linux/amd64 플랫폼 지정 - Apple Silicon 호환)
 docker build ${BUILD_OPTS} \
+    --platform linux/amd64 \
     -t ${IMAGE_NAME}:${IMAGE_TAG} \
     -f biomni_env/docker/Dockerfile \
     .

@@ -1,16 +1,17 @@
+name: hits_omics
 channels:
-  - conda-forge  # 1. 가장 우선순위가 높은 채널
-  - bioconda     # 2. 
-  - defaults     # 3.
+  - conda-forge
+  - bioconda
+  - defaults
+
 dependencies:
   # --- Conda Core ---
   - python=3.11
   - pip
 
   # --- Data Science & ML ---
-  # numpy==2.1 버전은 없는 것으로 보여, 호환성을 위해 버전 핀을 제거했습니다.
-  # Conda가 python 3.11에 맞는 최신 numpy 버전을 설치합니다.
-  - numpy        
+  # numpy<2 for langchain-aws compatibility (relaxed for pyscenic compatibility)
+  - numpy
   - pandas
   - matplotlib
   - scipy
@@ -21,14 +22,8 @@ dependencies:
   - rdkit
   
   # --- LLM & LangChain ---
-  - langchain
-  - langgraph
-  - langchain-openai
-  - langchain-google-genai
-  - langchain-aws
-  - langchain-community
   - openai
-  - transformers
+  - transformers>=4.40,<4.48  # Pin to avoid tokenizers 0.22.2 resolution issue
   - sentencepiece
   
   # --- Web & Utilities ---
@@ -39,9 +34,55 @@ dependencies:
   - tqdm
   - python-dotenv
   - chainlit
+  - docstring_parser
 
-  # --- Bioinformatics ---
+  # --- Bioinformatics tools (conda) ---
+  - blast
+  - samtools
+  - bowtie2
+  - bwa
+  - bedtools
+  - fastqc
+  - trimmomatic
+  - mafft
+  - gseapy
+  - mageck
+  # - plannotate
+  - macs2
+  - pysam         # <-- pip에서 이동 (필수)
+  - pyfaidx       # <-- pip에서 이동
+  - pyranges      # <-- pip에서 이동
+  - pybedtools    # <-- pip에서 이동
+  - cooler        # <-- pip에서 이동
+  - viennarna     # <-- pip에서 이동
+  - msprime       # <-- pip에서 이동
+  - tskit         # <-- pip에서 이동
+  # - cyvcf2        # <-- pip에서 이동
+  - hmmlearn      # <-- pip에서 이동
+
+  # --- Omics analysis packages (conda) ---
   - biopython
+  - scanpy
+  - anndata
+  - igraph
+  - leidenalg
+  - louvain
+  - hdbscan
+  - biopandas
+  - gget
+  - cellxgene-census # <-- pip에서 이동
+  - scikit-bio     # <-- pip에서 이동
+  - umap-learn     # <-- pip에서 이동
+  - scrublet       # <-- pip에서 이동
+  - scvelo         # <-- pip에서 이동
+  - scvi-tools     # <-- pip에서 이동
+  - harmony-pytorch  # <-- pip에서 이동
+  - pyliftover     # <-- pip에서 이동
+  # - pytdc          # <-- pip에서 이동 (0.4.0 버전이 conda-forge에 있음)
+  - cython        # macs2, scrublet 필요
+  # --- Other analysis tools ---
+  - faiss-cpu
+  - lifelines
 
   # --- Jupyter & Dev ---
   - gradio
@@ -50,9 +91,16 @@ dependencies:
   - ipykernel
   - pytest
 
+  # --- Utilities ---
+  - pytz
+  - markdown
+  - openpyxl
+
   # --- Pip-only packages ---
-  # 아래 패키지들은 conda-forge에 없어 pip로 설치를 유지합니다.
   - pip:
+      - pyscenic       # <-- conda numpy 버전 충돌로 pip으로 이동
+      - ddgs           # Conda에 없음
+      - pylint
       - mcp
       - tooluniverse
       - aiosqlite
@@ -61,4 +109,11 @@ dependencies:
       - googlesearch-python
       - langchain_qdrant
       - langchain_classic
-      - docker
+      - langchain
+      - langgraph
+      - langchain-openai
+      - langchain-google-genai
+      - langchain-aws
+      - langchain-community
+      - python-libsbml 
+      - cobra
