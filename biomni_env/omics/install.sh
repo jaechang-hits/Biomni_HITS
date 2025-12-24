@@ -46,10 +46,10 @@ echo "Creating environment: $env_name"
 # "$MICROMAMBA_BIN" install -n $env_name -f bio_env.yml -y || true
 
 # Install R packages if needed
-if [ -f r_packages.yml ]; then
-    echo "Installing R packages from r_packages.yml..."
-    "$MICROMAMBA_BIN" env update -n $env_name --file r_packages.yml -y || true
-fi
+# if [ -f r_packages.yml ]; then
+#     echo "Installing R packages from r_packages.yml..."
+#     "$MICROMAMBA_BIN" env update -n $env_name --file r_packages.yml -y || true
+# fi
 
 # Install R packages that couldn't be installed via conda due to dependency conflicts
 # if [ -f install_r_packages.R ]; then
