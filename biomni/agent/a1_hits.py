@@ -13,7 +13,7 @@ import re
 import os
 import time
 import base64
-from typing import Literal, TypedDict, List, Dict, Any, Set
+from typing import Literal, TypedDict, List, Dict, Any, Set, Optional
 from pathlib import Path
 from pydantic import BaseModel, Field
 from PIL import Image
@@ -565,6 +565,7 @@ class WorkflowNodes:
             agent: The A1_HITS agent instance
         """
         self.agent = agent
+        # workflow_tracker는 agent에서 직접 접근 (항상 최신 상태)
 
     def generate(self, state: AgentState) -> AgentState:
         """
@@ -707,6 +708,42 @@ class WorkflowNodes:
             # Get list of files after execution
             files_after = set(current_dir.glob("*"))
 
+            # Track execution for workflow saving
+            # Access workflow_tracker directly from agent (always up-to-date)
+            workflow_tracker = getattr(self.agent, 'workflow_tracker', None)
+            
+            if workflow_tracker:
+                success = not self._has_error(result)
+                error_type = None
+                if not success:
+                    # Extract error type from result
+                    if "Error" in result or "Exception" in result:
+                        error_type = "ExecutionError"
+                
+                # Extract input and output files
+                input_files = workflow_tracker.extract_input_files_from_code(code, current_dir)
+                output_files = workflow_tracker.extract_output_files_from_result(
+                    result, files_before, files_after, current_dir
+                )
+                
+                # Track execution (also saves to file)
+                saved_file = workflow_tracker.track_execution(
+                    code=code,
+                    result=result,
+                    success=success,
+                    input_files=input_files,
+                    output_files=output_files,
+                    error_type=error_type
+                )
+                
+                if saved_file:
+                    print(f"💾 Execute block saved to: {saved_file}")
+            else:
+                print("⚠️  Workflow tracker not available - execute block not tracked")
+                print(f"   Agent has workflow_tracker: {hasattr(self.agent, 'workflow_tracker')}")
+                if hasattr(self.agent, 'workflow_tracker'):
+                    print(f"   workflow_tracker value: {self.agent.workflow_tracker}")
+
             # Prepare observation
             observation = self._prepare_observation(result)
 
@@ -782,6 +819,19 @@ class WorkflowNodes:
             # For Bash scripts
             bash_script = re.sub(r"^#!BASH|^# Bash script", "", code, 1).strip()
             return run_with_timeout(run_bash_script, [bash_script], timeout=timeout)
+
+    def _has_error(self, result: str) -> bool:
+        """Check if execution result contains an error."""
+        error_indicators = [
+            "Error",
+            "Exception",
+            "Traceback",
+            "Failed",
+            "Error Type",
+            "Error Message"
+        ]
+        result_lower = result.lower()
+        return any(indicator.lower() in result_lower for indicator in error_indicators)
 
     def _prepare_observation(self, result: str) -> str:
         """Prepare observation from execution result."""
@@ -1225,10 +1275,11 @@ class A1_HITS(A1):
         # Load and apply resource filter config before calling super()
         self._apply_resource_filters_before_init(resource_filter_config_path, kwargs)
 
-        # Initialize parent class
-        super().__init__(*args, **kwargs)
+        # Get work_dir before calling super() (needed for workflow tracker)
+        work_dir = kwargs.get("path", default_config.path) or os.getcwd()
 
-        # Initialize LLM
+        # Initialize LLM before super() (needed for WorkflowSaver)
+        # This ensures workflow_tracker is available when configure() is called in super().__init__()
         self.llm = get_llm(
             kwargs.get("llm", default_config.llm),
             source=kwargs.get("source", default_config.source),
@@ -1238,6 +1289,24 @@ class A1_HITS(A1):
             ),
             config=default_config,
         )
+        
+        # Initialize workflow tracking BEFORE calling super()
+        # This ensures workflow_tracker is available when configure() is called
+        # Note: WorkflowSaver and WorkflowValidator are now handled by WorkflowService
+        # We only keep WorkflowTracker in Agent for real-time tracking
+        from .workflow_tracker import WorkflowTracker
+        
+        self.workflow_tracker = WorkflowTracker(work_dir=work_dir)
+        
+        # Print workflow save location for debugging
+        workflows_root = Path(work_dir).parent / "workflows"
+        workflows_dir = workflows_root / "workflows"
+        execute_blocks_dir = workflows_root / "execute_blocks"
+        print(f"📁 Workflow save location: {workflows_dir}")
+        print(f"📁 Execute blocks location: {execute_blocks_dir}")
+
+        # Initialize parent class (this may call configure(), but workflow_tracker is already set)
+        super().__init__(*args, **kwargs)
 
         # Apply resource filters after initialization
         self._apply_resource_filters_after_init(resource_filter_config_path)
@@ -1316,6 +1385,82 @@ class A1_HITS(A1):
                 from biomni.tool.tool_registry import ToolRegistry
 
                 self.tool_registry = ToolRegistry(self.module2api)
+    
+    def save_workflow_now(self, workflow_name: Optional[str] = None) -> Optional[str]:
+        """
+        Explicitly save workflow (can be called manually).
+        
+        Uses WorkflowService for cleaner separation of concerns.
+        
+        Args:
+            workflow_name: Optional workflow name
+            
+        Returns:
+            Path to saved workflow file, or None if saving failed
+        """
+        if not hasattr(self, 'workflow_tracker'):
+            print("⚠️  Workflow tracker not initialized")
+            return None
+        
+        try:
+            execution_history = self.workflow_tracker.get_execution_history()
+            if not execution_history:
+                print("ℹ️  No execution history to save")
+                return None
+            
+            print(f"💾 Saving workflow... (Found {len(execution_history)} execution(s))")
+            
+            # Use WorkflowService for cleaner separation
+            from .workflow_service import WorkflowService
+            
+            # Determine workflows directory
+            if self.workflow_tracker.execute_blocks_dir:
+                workflows_root = self.workflow_tracker.execute_blocks_dir.parent
+                workflows_dir = workflows_root / "workflows"
+            else:
+                # Fallback: use work_dir if available
+                if hasattr(self, 'work_dir') and self.work_dir:
+                    workflows_root = Path(self.work_dir).parent / "workflows"
+                    workflows_dir = workflows_root / "workflows"
+                else:
+                    print("⚠️  Cannot determine workflows directory")
+                    return None
+            
+            # Save workflow using WorkflowService
+            workflow_path = WorkflowService.save_workflow_from_tracker(
+                tracker=self.workflow_tracker,
+                workflows_dir=str(workflows_dir),
+                llm=self.llm,
+                workflow_name=workflow_name,
+                max_fix_attempts=2
+            )
+            
+            if workflow_path:
+                print(f"✅ Workflow saved to: {workflow_path}")
+            
+            return workflow_path
+        except Exception as e:
+            print(f"❌ Error saving workflow: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def __del__(self):
+        """Auto-save workflow on session end."""
+        if hasattr(self, 'workflow_tracker'):
+            try:
+                # Check if there are any executions to save
+                execution_history = self.workflow_tracker.get_execution_history()
+                if execution_history:
+                    print(f"💾 Auto-saving workflow on session end... (Found {len(execution_history)} execution(s))")
+                    # Use save_workflow_now which uses WorkflowService
+                    workflow_path = self.save_workflow_now()
+                    
+                    if workflow_path:
+                        print(f"✅ Workflow auto-saved to: {workflow_path}")
+            except Exception as e:
+                # Silently fail to avoid issues during cleanup
+                print(f"Error auto-saving workflow: {e}")
 
     def go(self, prompt, additional_system_prompt=None):
         """
@@ -1460,7 +1605,8 @@ class A1_HITS(A1):
             self_critic=self_critic, test_time_scale_round=test_time_scale_round
         )
 
-        # Create workflow nodes
+        # Create workflow nodes (workflow_tracker is already initialized in __init__)
+        # WorkflowNodes accesses workflow_tracker directly via self.agent.workflow_tracker
         nodes = WorkflowNodes(self)
 
         # Create the workflow
