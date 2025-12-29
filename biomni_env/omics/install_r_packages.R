@@ -44,8 +44,8 @@ if (!require("BiocManager", quietly = TRUE)) {
 # - timeROC: conflicts with r-pec dependency
 # - survivalROC: doesn't exist in conda channels
 
-cat("\nInstalling devtools...\n")
-install_if_missing("devtools")
+# cat("\nInstalling devtools...\n")
+# install_if_missing("devtools")
 
 cat("\nInstalling timeROC...\n")
 install_if_missing("timeROC")
