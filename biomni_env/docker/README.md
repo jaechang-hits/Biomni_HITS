@@ -203,6 +203,82 @@ biomni_env/omics/
 - 첫 빌드: 약 30분~1시간 (R 패키지 포함)
 - 캐시 사용 시: 훨씬 빠름
 
+---
+
+## 데이터 파일 사전 다운로드
+
+Biomni는 S3에서 데이터 파일(data_lake, benchmark)을 다운로드합니다. 특정 위치에 미리 다운로드하려면:
+
+### 1. 데이터 파일 다운로드
+
+```python
+from biomni.utils import check_and_download_s3_files
+from biomni.env_desc import data_lake_dict
+
+# 다운로드 경로 지정
+DOWNLOAD_PATH = "/path/to/your/data"
+
+# data_lake 파일 다운로드
+check_and_download_s3_files(
+    s3_bucket_url="https://biomni-release.s3.amazonaws.com",
+    local_data_lake_path=f"{DOWNLOAD_PATH}/data_lake",
+    expected_files=list(data_lake_dict.keys()),
+    folder="data_lake",
+)
+
+# benchmark 파일 다운로드
+check_and_download_s3_files(
+    s3_bucket_url="https://biomni-release.s3.amazonaws.com",
+    local_data_lake_path=f"{DOWNLOAD_PATH}/benchmark",
+    expected_files=[],  # 전체 폴더 다운로드
+    folder="benchmark",
+)
+```
+
+### 2. A1 Agent 생성 시 path 설정
+
+**⚠️ 중요**: 사전 다운로드한 파일을 사용하려면 A1 생성 시 반드시 `path`를 설정해야 합니다.
+
+다운로드 경로가 `/path/to/your/data`이면, A1 생성 시 상위 경로를 지정합니다:
+
+```python
+from biomni.agent import A1
+
+# path 설정 (다운로드 경로의 상위 디렉토리)
+# 파일 위치: /path/to/your/data/data_lake/, /path/to/your/data/benchmark/
+# A1 path: /path/to/your (biomni_data 없이)
+agent = A1(path="/path/to/your")
+```
+
+A1은 내부적으로 `{path}/biomni_data/data_lake/`와 `{path}/biomni_data/benchmark/`를 찾습니다.
+따라서 다운로드 시 경로 구조를 맞춰야 합니다:
+
+```
+/path/to/your/
+└── biomni_data/          # A1이 찾는 폴더
+    ├── data_lake/        # data_lake 파일들
+    │   ├── GRCh38.primary_assembly.genome.fa.gz
+    │   └── ...
+    └── benchmark/        # benchmark 파일들
+        └── hle/
+            └── ...
+```
+
+### 3. 환경변수로 설정 (선택)
+
+매번 path를 지정하는 대신 환경변수로 설정할 수 있습니다:
+
+```bash
+export BIOMNI_PATH="/path/to/your"
+```
+
+```python
+# 환경변수가 설정되어 있으면 path 지정 불필요
+agent = A1()  # BIOMNI_PATH 사용
+```
+
+---
+
 ## 포트
 
 | 포트 | 용도 |
