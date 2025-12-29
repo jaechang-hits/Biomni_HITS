@@ -85,9 +85,10 @@ def _resolve_biomni_data_path() -> str:
 
 # Configuration
 LLM_MODEL = "gemini-3-pro-preview"
+# LLM_MODEL = "claude-sonnet-4-5-20250929-v1:0"
 # LLM_MODEL = "grok-4-fast"
 BIOMNI_DATA_PATH = _resolve_biomni_data_path()
-PUBLIC_DIR = os.path.join(os.getcwd(), "public")
+PUBLIC_DIR = os.path.join(os.path.dirname(CURRENT_ABS_DIR), "public")
 CHAINLIT_DB_PATH = os.path.join(CURRENT_ABS_DIR, "chainlit.db")
 STREAMING_MAX_TIMEOUT = 3600  # Maximum streaming timeout in seconds (1 hour)
 
@@ -1209,6 +1210,11 @@ async def _process_agent_response(agent_input: list, message_history: list):
 
         final_message = _extract_final_message(raw_full_message)
         final_message = _detect_image_name_and_move_to_public(final_message)
+        final_message = _detect_sar_report_and_add_button(final_message)
+
+        # Add a small delay to ensure the step is fully closed in the UI
+        await asyncio.sleep(0.1)
+        logger.info("[RESPONSE] Sending final message to UI")
 
         await cl.Message(content=final_message).send()
 
@@ -1359,12 +1365,14 @@ async def _handle_message_stream(message_stream, chainlit_step, sync_generator):
             step_message += chunk_content
 
             # Remove heartbeat message if present (new chunk arrived!)
+            had_heartbeat = False
             if last_heartbeat_msg[0]:
                 logger.debug("[STREAM] Removing heartbeat message (new chunk arrived)")
                 current_output = chainlit_step.output or ""
                 if current_output.endswith(last_heartbeat_msg[0]):
                     chainlit_step.output = current_output[: -len(last_heartbeat_msg[0])]
                 last_heartbeat_msg[0] = ""  # Clear heartbeat message
+                had_heartbeat = True
 
             # Format and detect images
             formatted_text = _modify_chunk(raw_full_message)
@@ -1373,17 +1381,19 @@ async def _handle_message_stream(message_stream, chainlit_step, sync_generator):
             )
 
             # Only stream if changed
-            if formatted_text != last_formatted_text:
+            if formatted_text != last_formatted_text or had_heartbeat:
                 prev_output = last_formatted_text
 
-                if prev_output and formatted_text.startswith(prev_output):
+                if not had_heartbeat and prev_output and formatted_text.startswith(prev_output):
                     delta = formatted_text[len(prev_output) :]
+                    is_sequence = False
                 else:
                     delta = formatted_text
+                    is_sequence = True
 
-                if delta:
+                if delta or is_sequence:
                     # This await also checks for CancelledError
-                    await chainlit_step.stream_token(delta)
+                    await chainlit_step.stream_token(delta, is_sequence=is_sequence)
                     chainlit_step.output = formatted_text
                     last_formatted_text = formatted_text
 
@@ -1842,7 +1852,7 @@ def _detect_image_name_and_move_to_public(
 
         try:
             shutil.copy2(image_path, new_file_path)
-            public_path = f"/public/{new_file_name}"
+            public_path = f"/chainlit/public/{new_file_name}"
             image_cache[image_path] = public_path  # Cache the result
             print("copied image to", new_file_path)
             return (
@@ -1854,3 +1864,58 @@ def _detect_image_name_and_move_to_public(
             return match.group(0)
 
     return re.sub(image_pattern, replace_image, content)
+
+
+def _detect_sar_report_and_add_button(content: str) -> str:
+    """
+    Check if sar_analysis_report.html exists, move to public, add button to content.
+    """
+    report_filename = "sar_analysis_report.html"
+    
+    # Check in current working directory
+    if not os.path.exists(report_filename):
+        return content
+
+    public_dir = PUBLIC_DIR
+    os.makedirs(public_dir, exist_ok=True)
+
+    # Generate unique filename to avoid caching/overwriting issues
+    random_prefix = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
+    new_filename = f"{random_prefix}_{report_filename}"
+    new_file_path = os.path.join(public_dir, new_filename)
+
+    try:
+        shutil.copy2(report_filename, new_file_path)
+        public_url = f"/public/{new_filename}"
+        
+        # Add button HTML
+        # Using inline styles for a green button
+        button_html = (
+            f'\n\n<div style="margin-top: 15px;">'
+            f'<a href="{public_url}" target="_blank" style="'
+            'display: inline-block; '
+            'padding: 10px 20px; '
+            'background-color: hsl(var(--primary)); '
+            'color: hsl(var(--primary-foreground)); '
+            'text-decoration: none; '
+            'border-radius: 5px; '
+            'font-weight: bold; '
+            'box-shadow: 0 2px 5px rgba(0,0,0,0.2);'
+            'transition: background-color 0.3s;">'
+            '📊 Open Analysis Report'
+            '</a>'
+            '</div>\n'
+        )
+        print(f"SAR report moved to {new_file_path}")
+        
+        # Rename original file to avoid re-processing in subsequent turns
+        # This acts as a flag that the report has been "consumed" (button added)
+        processed_filename = f"{report_filename}.processed"
+        if os.path.exists(processed_filename):
+            os.remove(processed_filename)
+        os.rename(report_filename, processed_filename)
+        
+        return content + button_html
+    except Exception as e:
+        print(f"Error processing SAR report: {e}")
+        return content
