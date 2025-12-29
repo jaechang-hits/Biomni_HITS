@@ -107,12 +107,81 @@ conda-lock install -n myenv biomni_env/docker/bio-lock.yml --mamba
 conda-lock install -n myenv biomni_env/docker/r-lock.yml --mamba
 ```
 
+---
+
+## Pixi 기반 Docker 빌드 (권장)
+
+Pixi는 더 빠르고 재현 가능한 패키지 관리를 제공합니다.
+
+### 사전 준비: pixi.toml 생성/업데이트
+
+기존 conda environment.yml에서 pixi.toml을 만들거나 업데이트하려면:
+
+```bash
+# 1. 프로젝트 루트에 pixi.toml이 없는 경우, 초기화
+pixi init
+
+# 2. conda environment.yml에서 의존성 가져오기
+pixi add --manifest-path pixi.toml numpy pandas matplotlib scipy ...
+
+# 3. linux-64 플랫폼 지원 추가 (Docker 빌드에 필수)
+# pixi.toml의 platforms에 linux-64 추가:
+# platforms = ["osx-arm64", "linux-64", "linux-aarch64"]
+
+# 4. lock 파일 생성/업데이트
+pixi install
+```
+
+### Pixi Docker 빌드
+
+```bash
+# 방법 1: 빌드 스크립트 사용 (pixi 옵션)
+./biomni_env/docker/build.sh --pixi
+
+# 방법 2: docker build 직접 실행
+docker build -t biomni-hits-pixi:latest -f biomni_env/docker/Dockerfile.pixi .
+
+# 캐시 없이 새로 빌드
+./biomni_env/docker/build.sh --pixi --no-cache
+```
+
+### Pixi 컨테이너 실행
+
+```bash
+# 기본 실행 (인터랙티브 쉘)
+docker run -it --rm biomni-hits-pixi:latest
+
+# 현재 디렉토리 마운트
+docker run -it --rm -v $(pwd):/workspace biomni-hits-pixi:latest
+
+# Jupyter 서버 실행
+docker run -it --rm -p 8888:8888 -v $(pwd):/workspace biomni-hits-pixi:latest \
+  jupyter notebook --ip=0.0.0.0 --allow-root --port=8888
+
+# 특정 Python 스크립트 실행
+docker run -it --rm -v $(pwd):/workspace biomni-hits-pixi:latest \
+  python your_script.py
+```
+
+### Pixi vs Conda-lock 비교
+
+| 항목 | Pixi | Conda-lock |
+|------|------|------------|
+| 속도 | ⚡ 빠름 | 보통 |
+| Lock 파일 | pixi.lock (자동) | conda-lock.yml (수동 생성) |
+| 멀티 플랫폼 | pixi.toml에 선언 | 명령어로 지정 |
+| 환경 관리 | 프로젝트 단위 | 글로벌/프로젝트 |
+| PyPI 패키지 | pypi-dependencies로 통합 | 별도 requirements.txt |
+
+---
+
 ## 파일 구조
 
 ```
 biomni_env/docker/
-├── Dockerfile           # Docker 이미지 정의
-├── build.sh             # 빌드 스크립트
+├── Dockerfile           # Docker 이미지 정의 (conda-lock 기반)
+├── Dockerfile.pixi      # Docker 이미지 정의 (pixi 기반, 권장)
+├── build.sh             # 빌드 스크립트 (--pixi 옵션으로 Pixi 빌드)
 ├── conda-lock.yml       # 기본 환경 lock 파일
 ├── bio-lock.yml         # 생물정보학 패키지 lock 파일
 ├── r-lock.yml           # R 패키지 lock 파일
@@ -123,6 +192,10 @@ biomni_env/omics/
 ├── bio_env.yml          # 생물정보학 패키지
 ├── r_packages.yml       # R 기본 패키지 (conda)
 └── install_r_packages.R # Bioconductor R 패키지
+
+# 프로젝트 루트
+├── pixi.toml            # Pixi 패키지 정의 (권장)
+└── pixi.lock            # Pixi lock 파일 (자동 생성)
 ```
 
 ## 빌드 시간
