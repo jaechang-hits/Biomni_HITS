@@ -180,6 +180,7 @@ You are an expert in Cheminformatics and Python. Perform a SAR (Structure-Activi
             * In this section, present the analogues you propose based on Instruction #4.
             * **If you conclude that the provided data is sufficient and no new analogues are needed**, you must still include the section and state: "The provided analogues offer sufficient comparative data for a robust initial SAR analysis at the explored positions." This ensures the step is never skipped.
         * **Conciseness:** Provide only the requested SAR analysis.
+        * **Proactive Follow-up:** At the very end of your response (after the Conclusion), you **must** explicitly suggest a follow-up step or analysis in the form of a direct question to the user (e.g., "Would you like me to...?").
 
         ---
         **Example Output Structure:**
@@ -189,6 +190,8 @@ You are an expert in Cheminformatics and Python. Perform a SAR (Structure-Activi
         ### Suggestions for Further Study
 
         To validate the hypothesis that steric bulk at R1 is detrimental, synthesizing an analogue with a simple hydrogen at that position (the des-methyl version of compound 1) is recommended. This would establish a baseline activity for the unsubstituted scaffold and confirm the size constraints of the binding pocket.
+
+        **Would you like me to design a synthesis pathway for the proposed des-methyl analogue?**
 
 **Output:**
 *   Provide the final `sar_analysis_report.html` file.
