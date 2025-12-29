@@ -250,3 +250,6 @@ workspace/
 QA/qa_results/run_2025*
 
 jaechang_test
+# pixi environments
+.pixi/*
+!.pixi/config.toml
