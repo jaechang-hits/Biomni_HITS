@@ -27,7 +27,9 @@ ENV MAMBA_ROOT_PREFIX=/opt/micromamba
 ENV PATH="${MAMBA_ROOT_PREFIX}/bin:$PATH"
 
 # Install system dependencies (needed for R and some bioinformatics tools)
-RUN apt-get update && apt-get install -y \
+# Note: openssh-client is excluded (not needed, causes chmod issues on XFS)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     wget \

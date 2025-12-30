@@ -604,8 +604,6 @@ class WorkflowNodes:
         execute_match = re.search(r"<execute>(.*?)</execute>", msg, re.DOTALL)
         answer_match = re.search(r"<solution>(.*?)</solution>", msg, re.DOTALL)
 
-        print(execute_match, answer_match, think_match)
-
         # Add message to state
         state["messages"].append(AIMessage(content=msg.strip()))
 
@@ -640,7 +638,6 @@ class WorkflowNodes:
 
     def _handle_parsing_error(self, state: AgentState) -> AgentState:
         """Handle parsing errors when no valid tags are found."""
-        print("parsing error...")
 
         # Check if we already added an error message to avoid infinite loops
         error_count = sum(
@@ -694,7 +691,6 @@ class WorkflowNodes:
         execute_match = re.search(r"<execute>(.*?)</execute>", last_message, re.DOTALL)
 
         if execute_match:
-            print("START EXECUTING CODE!!!!!")
             code = execute_match.group(1)
 
             # Get list of files before execution
@@ -1317,78 +1313,12 @@ class A1_HITS(A1):
 
                 self.tool_registry = ToolRegistry(self.module2api)
 
-    def go(self, prompt, additional_system_prompt=None):
-        """
-        Execute the agent with the given prompt (synchronous).
-
-        Args:
-            prompt: The user's query
-            additional_system_prompt: Optional additional system prompt
-
-        Yields:
-            Messages from the agent execution
-        """
-        self.critic_count = 0
-        self.user_task = prompt
-
-        # Perform tool retrieval if enabled
-        if self.use_tool_retriever:
-            self._perform_tool_retrieval(prompt)
-
-        # Add additional system prompt if provided
-        if additional_system_prompt:
-            self.system_prompt += "\n----\n" + additional_system_prompt
-
-        # Prepare inputs
-        inputs = {"messages": [HumanMessage(content=prompt)], "next_step": None}
-        config = {
-            "recursion_limit": Config.DEFAULT_RECURSION_LIMIT,
-            "configurable": {"thread_id": Config.DEFAULT_THREAD_ID},
-        }
-
-        # Initialize log
-        self.log = [self.system_prompt]
-        yield self.system_prompt
-
-        # Stream execution
-        for s in self.app.stream(
-            inputs, stream_mode="messages", config=config, subgraphs=True
-        ):
-            # Handle message chunks and complete messages
-            if type(s[1][0]) == AIMessageChunk:
-                print(s[1][0].content, end="")
-            elif type(s[1][0]) in [AIMessage, HumanMessage]:
-                message = s[1][0].content
-
-                # Extract text from structured content
-                if isinstance(message, list):
-                    text_parts = [
-                        item["text"] for item in message if item.get("type") == "text"
-                    ]
-                    text_message = "\n".join(text_parts) if text_parts else ""
-
-                    if type(s[1][0]) == HumanMessage:
-                        print(text_message)
-                    self.log.append(message)
-                    yield text_message
-                else:
-                    if type(s[1][0]) == HumanMessage:
-                        print(message)
-                    self.log.append(message)
-                    yield message
-
-        return self.log, message
-
-    def go_stream(
-        self, prompt, additional_system_prompt=None, skip_generate_system_prompt=False
-    ):
+    def go_stream(self, prompt):
         """
         Execute the agent with the given prompt (streaming).
 
         Args:
             prompt: The user's query (can be a list of messages)
-            additional_system_prompt: Optional additional system prompt
-            skip_generate_system_prompt: Skip system prompt generation
 
         Yields:
             Message chunks from the agent execution
@@ -1397,12 +1327,8 @@ class A1_HITS(A1):
         self.user_task = prompt
 
         # Perform tool retrieval if enabled
-        if self.use_tool_retriever and not skip_generate_system_prompt:
+        if self.use_tool_retriever:
             self._perform_tool_retrieval(prompt)
-
-        # Add additional system prompt if provided
-        if additional_system_prompt:
-            self.system_prompt += "\n----\n" + additional_system_prompt
 
         # Prepare inputs
         inputs = {"messages": prompt, "next_step": None}
@@ -1422,8 +1348,6 @@ class A1_HITS(A1):
 
     def _perform_tool_retrieval(self, prompt):
         """Perform tool retrieval and update system prompt."""
-        print("start tool retrieval")
-
         # Gather resources
         collector = ResourceCollector(self)
         resources = collector.gather_all_resources()
@@ -1436,9 +1360,6 @@ class A1_HITS(A1):
         selected_resources = self.retriever.prompt_based_retrieval(
             text_prompt, resources, llm=tool_llm
         )
-
-        print("end tool retrieval")
-        print("Using prompt-based RAG retrieval with the agent's LLM")
 
         # Process selected resources
         selected_resources_names = ResourceCollector.process_selected_resources(
