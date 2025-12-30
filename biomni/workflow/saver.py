@@ -7,6 +7,7 @@ Saves workflow code as standalone Python scripts with metadata.
 import os
 import re
 import ast
+import json
 from pathlib import Path
 from typing import Optional, Dict, List, Set
 from datetime import datetime
@@ -88,7 +89,7 @@ class WorkflowSaver:
         self,
         tracker: WorkflowTracker,
         workflow_name: Optional[str] = None,
-        save_mode: str = "simple"  # "llm" or "simple"
+        save_mode: str = "notebook"  # "llm", "simple", or "notebook"
     ) -> Optional[str]:
         """
         Save workflow automatically at session end.
@@ -97,7 +98,7 @@ class WorkflowSaver:
         Args:
             tracker: WorkflowTracker instance with execution history
             workflow_name: Optional workflow name (auto-extracted if not provided)
-            save_mode: Save mode - "llm" or "simple" (default: "simple")
+            save_mode: Save mode - "llm", "simple", or "notebook" (default: "notebook")
             
         Returns:
             Path to saved workflow file, or None if saving failed
@@ -110,8 +111,8 @@ class WorkflowSaver:
         if workflow_name is not None and not isinstance(workflow_name, str):
             workflow_name = str(workflow_name) if workflow_name else None
         
-        if not isinstance(save_mode, str) or save_mode not in ["llm", "simple"]:
-            save_mode = "simple"
+        if not isinstance(save_mode, str) or save_mode not in ["llm", "simple", "notebook"]:
+            save_mode = "notebook"
         
         # Get in-memory history first (most up-to-date)
         try:
@@ -164,7 +165,9 @@ class WorkflowSaver:
         # Choose save mode
         if save_mode == "simple":
             return self._save_workflow_simple(execution_history, workflow_name)
-        else:
+        elif save_mode == "notebook":
+            return self._save_workflow_notebook(execution_history, workflow_name)
+        else:  # "llm"
             return self._save_workflow_llm(execution_history, workflow_name)
     
     def _save_workflow_llm(
@@ -990,11 +993,16 @@ if __name__ == "__main__":
             tree = ast.parse(code)
             lines = code.split('\n')
             
-            # Step 1: Extract all imports and their aliases
+            # Single pass: Extract imports and detect usage patterns simultaneously
+            # This replaces 2 separate AST walks with 1 consolidated walk
             imports_by_alias = {}  # {alias: (module, import_line, full_import_stmt)}
             imports_by_module = {}  # {module: (alias, import_line, full_import_stmt)}
+            used_aliases = set()  # For alias patterns like pd., np., plt.
+            used_modules = set()  # For direct module usage like argparse., glob., os.
+            used_classes = set()  # For class instantiation like StandardScaler(), PCA()
             
             for node in ast.walk(tree):
+                # Extract imports
                 if isinstance(node, ast.Import):
                     for alias in node.names:
                         module = alias.name
@@ -1014,23 +1022,15 @@ if __name__ == "__main__":
                         line_no = node.lineno - 1 if hasattr(node, 'lineno') else -1
                         imports_by_alias[alias_name] = (full_module, line_no, import_stmt)
                         imports_by_module[full_module] = (alias_name, line_no, import_stmt)
-            
-            # Step 2: Detect module/class usage in code
-            # Track both alias usage (pd.read_csv) and direct module usage (argparse.ArgumentParser)
-            used_aliases = set()  # For alias patterns like pd., np., plt.
-            used_modules = set()  # For direct module usage like argparse., glob., os.
-            used_classes = set()  # For class instantiation like StandardScaler(), PCA()
-            
-            for node in ast.walk(tree):
-                # Detect attribute access: something.attribute
-                if isinstance(node, ast.Attribute):
+                
+                # Detect usage patterns (in the same pass)
+                elif isinstance(node, ast.Attribute):
                     if isinstance(node.value, ast.Name):
                         module_or_alias = node.value.id
                         # Check if it's a known module name or alias
                         used_modules.add(module_or_alias)
                         used_aliases.add(module_or_alias)
                 
-                # Detect class instantiation: ClassName()
                 elif isinstance(node, ast.Call):
                     if isinstance(node.func, ast.Name):
                         class_name = node.func.id
@@ -1146,7 +1146,7 @@ if __name__ == "__main__":
         tracker: WorkflowTracker,
         workflow_name: Optional[str] = None,
         max_fix_attempts: int = DEFAULT_MAX_FIX_ATTEMPTS,
-        save_mode: str = "simple"  # "llm" or "simple"
+        save_mode: str = "notebook"  # "llm", "simple", or "notebook"
     ) -> Optional[str]:
         """
         Save workflow and validate it. If validation fails, attempt to fix using LLM (up to max_fix_attempts times).
@@ -1158,7 +1158,7 @@ if __name__ == "__main__":
             tracker: WorkflowTracker instance with execution history
             workflow_name: Optional workflow name (auto-extracted if not provided)
             max_fix_attempts: Maximum number of fix attempts (default: DEFAULT_MAX_FIX_ATTEMPTS, only used in LLM mode)
-            save_mode: Save mode - "llm" for LLM-based generation, "simple" for concatenation (default: "simple")
+            save_mode: Save mode - "llm" for LLM-based generation, "simple" for concatenation, "notebook" for Jupyter notebook (default: "notebook")
             
         Returns:
             Path to saved workflow file, or None if saving/validation failed
@@ -1174,8 +1174,8 @@ if __name__ == "__main__":
         if not isinstance(max_fix_attempts, int) or max_fix_attempts < 0:
             max_fix_attempts = self.DEFAULT_MAX_FIX_ATTEMPTS
         
-        if not isinstance(save_mode, str) or save_mode not in ["llm", "simple"]:
-            save_mode = "simple"
+        if not isinstance(save_mode, str) or save_mode not in ["llm", "simple", "notebook"]:
+            save_mode = "notebook"
         
         # Save initial workflow (returns temporary file path)
         temp_workflow_path = self.save_workflow(tracker, workflow_name, save_mode=save_mode)
@@ -1185,6 +1185,20 @@ if __name__ == "__main__":
         
         # If validator is not available, finalize the temporary file and return
         if not self.validator:
+            final_path = self._finalize_workflow_file(temp_workflow_path)
+            
+            # Log completion
+            description_path = self._get_description_path_for_workflow(final_path)
+            self.logger.log_workflow_complete(final_path, description_path)
+            log_file_path = self.logger.get_log_file_path()
+            if log_file_path:
+                print(f"📋 Detailed log saved to: {log_file_path}")
+            
+            return final_path
+        
+        # Skip validation for notebook mode (notebooks cannot be directly executed as Python scripts)
+        if save_mode == "notebook":
+            print("ℹ️  Skipping validation for notebook mode (notebooks require manual execution or nbconvert)")
             final_path = self._finalize_workflow_file(temp_workflow_path)
             
             # Log completion
@@ -1992,17 +2006,106 @@ if __name__ == "__main__":
         if workflow_name is not None and not isinstance(workflow_name, str):
             workflow_name = str(workflow_name) if workflow_name else None
         
-        # Filter to only successful executions (with validation)
+        # Step 0: Analyze output file dependencies
+        # Identify which output files are generated by failed executions but used by successful ones
+        failed_executions_with_outputs = []
+        for exec_entry in execution_history:
+            if isinstance(exec_entry, dict) and not exec_entry.get("success", False):
+                output_files = exec_entry.get("output_files", [])
+                if isinstance(output_files, list) and len(output_files) > 0:
+                    failed_executions_with_outputs.append(exec_entry)
+        
+        # Extract output file names (just filenames, not full paths) from failed executions
+        failed_output_files = set()
+        for exec_entry in failed_executions_with_outputs:
+            output_files = exec_entry.get("output_files", [])
+            if isinstance(output_files, list):
+                for output_file in output_files:
+                    if isinstance(output_file, str):
+                        # Extract just the filename
+                        from pathlib import Path
+                        filename = Path(output_file).name
+                        failed_output_files.add(filename)
+        
+        # Check if any successful execution uses files generated by failed executions
+        # OPTIMIZATION: Use lightweight regex matching instead of full AST parsing
+        # This is much faster for simple file reference detection
+        required_failed_executions = []
+        if failed_output_files:
+            # Pre-compile regex patterns for all failed output files (performance optimization)
+            # Build a single regex pattern that matches any failed file
+            escaped_files = [re.escape(f) for f in failed_output_files]
+            file_pattern = '|'.join(escaped_files)
+            
+            # Compile patterns once (reused for all executions)
+            read_csv_pattern = re.compile(rf'read_csv\([^)]*["\']({file_pattern})["\']', re.IGNORECASE)
+            read_excel_pattern = re.compile(rf'read_excel\([^)]*["\']({file_pattern})["\']', re.IGNORECASE)
+            read_parquet_pattern = re.compile(rf'read_parquet\([^)]*["\']({file_pattern})["\']', re.IGNORECASE)
+            open_pattern = re.compile(rf'open\([^)]*["\']({file_pattern})["\']', re.IGNORECASE)
+            quote_pattern = re.compile(rf'["\']({file_pattern})["\']', re.IGNORECASE)
+            
+            # Build a reverse lookup map: filename -> list of failed executions that generate it
+            filename_to_executions = {}  # {filename: [failed_exec, ...]}
+            for failed_exec in failed_executions_with_outputs:
+                failed_outputs = failed_exec.get("output_files", [])
+                if isinstance(failed_outputs, list):
+                    for failed_output in failed_outputs:
+                        if isinstance(failed_output, str):
+                            filename = Path(failed_output).name
+                            if filename not in filename_to_executions:
+                                filename_to_executions[filename] = []
+                            if failed_exec not in filename_to_executions[filename]:
+                                filename_to_executions[filename].append(failed_exec)
+            
+            for exec_entry in execution_history:
+                if isinstance(exec_entry, dict) and exec_entry.get("success", False):
+                    code = exec_entry.get("code", "")
+                    if not isinstance(code, str) or not code.strip():
+                        continue
+                    
+                    # Use lightweight regex matching instead of AST parsing
+                    # Check for file references using pre-compiled patterns
+                    found_files = set()
+                    
+                    # Check all patterns
+                    for pattern in [read_csv_pattern, read_excel_pattern, read_parquet_pattern, open_pattern, quote_pattern]:
+                        matches = pattern.findall(code)
+                        if isinstance(matches, list):
+                            for match in matches:
+                                if isinstance(match, str):
+                                    found_files.add(match)
+                        elif isinstance(matches, str):
+                            found_files.add(matches)
+                    
+                    # For each found file, add the corresponding failed executions
+                    for found_file in found_files:
+                        if found_file in filename_to_executions:
+                            for failed_exec in filename_to_executions[found_file]:
+                                if failed_exec not in required_failed_executions:
+                                    required_failed_executions.append(failed_exec)
+        
+        # Filter to successful executions + required failed executions
         successful_executions = []
         for exec_entry in execution_history:
             if isinstance(exec_entry, dict) and exec_entry.get("success", False):
                 successful_executions.append(exec_entry)
         
+        # Add required failed executions (those that generate files used by successful executions)
+        if required_failed_executions:
+            print(f"📦 Including {len(required_failed_executions)} failed execution(s) that generate required output files...")
+            for failed_exec in required_failed_executions:
+                output_files = failed_exec.get("output_files", [])
+                output_names = [Path(f).name for f in output_files if isinstance(f, str)]
+                print(f"   - Including failed execution generating: {', '.join(output_names[:3])}{'...' if len(output_names) > 3 else ''}")
+            successful_executions.extend(required_failed_executions)
+            # Sort by timestamp to maintain execution order
+            successful_executions.sort(key=lambda x: x.get("timestamp", ""))
+        
         if not successful_executions:
             print("⚠️  No successful executions found to save workflow.")
             return None
         
-        print(f"📝 Saving workflow in simple mode (concatenating {len(successful_executions)} successful execution(s))...")
+        print(f"📝 Saving workflow in simple mode (concatenating {len(successful_executions)} execution(s))...")
         
         # Extract workflow name if not provided
         if not workflow_name:
@@ -2038,7 +2141,68 @@ if __name__ == "__main__":
                     pass
         
         # Step 3: Find missing variable definitions
+        # Also recursively find dependencies of missing variables
         missing_variables = used_variables - defined_variables
+        
+        # Step 3.5: Recursively find all dependencies of missing variables
+        # This ensures we extract the full dependency chain (e.g., if tumor_counts is missing,
+        # we also need counts_df and tumor_samples)
+        all_failed_executions = [
+            exec_entry for exec_entry in execution_history
+            if not exec_entry.get("success", False)
+        ]
+        
+        # Build a map of all variable definitions in failed executions
+        failed_var_definitions = {}  # {var_name: (code, dependencies)}
+        for exec_entry in all_failed_executions:
+            if not isinstance(exec_entry, dict):
+                continue
+            
+            code = exec_entry.get("code", "")
+            if not isinstance(code, str) or not code.strip():
+                continue
+            
+            try:
+                tree = ast.parse(code)
+                lines = code.split('\n')
+                
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Assign):
+                        for target in node.targets:
+                            if isinstance(target, ast.Name):
+                                var_name = target.id
+                                dependencies = self._extract_variable_dependencies(node.value)
+                                start_line = node.lineno - 1
+                                end_line = node.end_lineno if hasattr(node, 'end_lineno') else node.lineno
+                                assignment_code = '\n'.join(lines[start_line:end_line])
+                                
+                                if var_name not in failed_var_definitions:
+                                    failed_var_definitions[var_name] = (assignment_code, dependencies)
+            except Exception:
+                # Skip if parsing fails
+                pass
+        
+        # Recursively expand missing_variables to include all dependencies
+        expanded_missing = missing_variables.copy()
+        to_check = list(missing_variables)
+        checked = set()
+        
+        while to_check:
+            var_name = to_check.pop(0)
+            if var_name in checked:
+                continue
+            checked.add(var_name)
+            
+            # If this variable is defined in a failed execution, add its dependencies
+            if var_name in failed_var_definitions:
+                _, dependencies = failed_var_definitions[var_name]
+                for dep in dependencies:
+                    # Only add if not already defined in successful executions
+                    if dep not in defined_variables and dep not in expanded_missing:
+                        expanded_missing.add(dep)
+                        to_check.append(dep)
+        
+        missing_variables = expanded_missing
         
         # Step 4: Extract variable definitions from failed executions
         dependency_code_blocks = []
@@ -2049,26 +2213,96 @@ if __name__ == "__main__":
                 if not exec_entry.get("success", False)
             ]
             
-            for exec_entry in failed_executions:
+            # OPTIMIZATION: Pre-parse all failed execution code blocks once
+            # Build a lookup map: {var_name: [(exec_idx, code, dependencies, node), ...]}
+            # This avoids repeated AST parsing in the loop
+            var_lookup_map = {}  # {var_name: list of (exec_idx, code, dependencies, node, line_range)}
+            
+            for exec_idx, exec_entry in enumerate(failed_executions):
                 if not isinstance(exec_entry, dict):
                     continue
                 
                 code = exec_entry.get("code", "")
-                if isinstance(code, str) and code.strip():
-                    try:
-                        # Extract only variable definitions that are needed
-                        var_def_code = self._extract_variable_definitions_from_code(
-                            code, missing_variables
-                        )
-                        if var_def_code:
-                            dependency_code_blocks.append(var_def_code)
-                            # Update defined variables to avoid duplicates
-                            new_defs = self._extract_variable_definitions(var_def_code)
-                            defined_variables.update(new_defs)
-                            missing_variables -= new_defs
-                    except Exception:
-                        # Skip if extraction fails
-                        pass
+                if not isinstance(code, str) or not code.strip():
+                    continue
+                
+                try:
+                    # Parse once per execution block
+                    tree = ast.parse(code)
+                    lines = code.split('\n')
+                    
+                    # Extract all variable definitions from this block
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.Assign):
+                            for target in node.targets:
+                                if isinstance(target, ast.Name):
+                                    var_name = target.id
+                                    dependencies = self._extract_variable_dependencies(node.value)
+                                    start_line = node.lineno - 1
+                                    end_line = node.end_lineno if hasattr(node, 'end_lineno') else node.lineno
+                                    
+                                    if var_name not in var_lookup_map:
+                                        var_lookup_map[var_name] = []
+                                    var_lookup_map[var_name].append((
+                                        exec_idx, code, dependencies, node, (start_line, end_line)
+                                    ))
+                except Exception:
+                    # Skip if parsing fails
+                    continue
+            
+            # Extract variable definitions using the lookup map
+            # Process multiple times to handle dependencies between failed blocks
+            max_iterations = len(failed_executions) * 2  # Prevent infinite loops
+            iteration = 0
+            remaining_missing = missing_variables.copy()
+            
+            while remaining_missing and iteration < max_iterations:
+                iteration += 1
+                newly_extracted = False
+                
+                # Use lookup map for O(1) access instead of O(n) iteration
+                for var_name in list(remaining_missing):
+                    if var_name not in var_lookup_map:
+                        continue
+                    
+                    # Find first definition whose dependencies are satisfied
+                    for exec_idx, code, dependencies, node, (start_line, end_line) in var_lookup_map[var_name]:
+                        # Check if all dependencies are satisfied
+                        missing_deps = dependencies - defined_variables
+                        
+                        if not missing_deps:
+                            # All dependencies satisfied, extract this definition
+                            try:
+                                lines = code.split('\n')
+                                assignment_code = '\n'.join(lines[start_line:end_line])
+                                
+                                # Format as extracted code block
+                                header = f"# Variable definitions extracted from failed execution (required by successful code)"
+                                var_def_code = f"{header}\n{assignment_code}"
+                                
+                                dependency_code_blocks.append(var_def_code)
+                                
+                                # Update defined variables
+                                defined_variables.add(var_name)
+                                remaining_missing.discard(var_name)
+                                newly_extracted = True
+                                
+                                # Remove from lookup map to avoid duplicates
+                                var_lookup_map[var_name].remove((exec_idx, code, dependencies, node, (start_line, end_line)))
+                                if not var_lookup_map[var_name]:
+                                    del var_lookup_map[var_name]
+                                
+                                break  # Use first matching definition
+                            except Exception as e:
+                                self.logger.logger.debug(f"Failed to extract variable definition for {var_name}: {e}")
+                                continue
+                
+                # If no new variables were extracted in this iteration, break
+                if not newly_extracted:
+                    break
+            
+            # Update missing_variables to reflect what we actually extracted
+            missing_variables = remaining_missing
         
         # Step 5: Concatenate code blocks (dependencies first, then successful executions)
         code_blocks = []
@@ -2138,6 +2372,388 @@ if __name__ == "__main__":
         
         return file_path
     
+    def _save_workflow_notebook(
+        self,
+        execution_history: List[Dict],
+        workflow_name: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Save workflow as Jupyter notebook with each execute block as a cell.
+        
+        This approach is simpler than simple mode because:
+        - No complex variable dependency analysis needed
+        - Notebook handles cell-to-cell state automatically
+        - Errors in one cell don't break the entire workflow
+        
+        Args:
+            execution_history: List of execution dictionaries
+            workflow_name: Optional workflow name
+            
+        Returns:
+            Path to saved notebook file, or None if saving failed
+        """
+        # Input validation
+        if not isinstance(execution_history, list):
+            self.logger.log_error("Invalid execution_history: must be a list")
+            return None
+        
+        if workflow_name is not None and not isinstance(workflow_name, str):
+            workflow_name = str(workflow_name) if workflow_name else None
+        
+        # Step 1: Include ALL executions in order (success or failure doesn't matter)
+        # Notebook mode can handle errors gracefully with --allow-errors flag
+        # Failed blocks may contain important imports or code that's needed later
+        all_executions = []
+        
+        for exec_entry in execution_history:
+            if not isinstance(exec_entry, dict):
+                continue
+            
+            # Include all executions regardless of success status
+            # Just ensure they have code
+            code = exec_entry.get("code", "")
+            if isinstance(code, str) and code.strip():
+                all_executions.append(exec_entry)
+        
+        # Sort by timestamp to maintain execution order
+        all_executions.sort(key=lambda x: x.get("timestamp", ""))
+        
+        if not all_executions:
+            print("⚠️  No executions found to save workflow.")
+            return None
+        
+        print(f"📝 Saving workflow as notebook ({len(all_executions)} cell(s))...")
+        
+        # Step 2: Extract workflow name if not provided
+        if not workflow_name:
+            workflow_name = self.get_workflow_name(all_executions)
+        
+        # Step 3: Convert each execution to a notebook cell
+        cells = []
+        all_imports = set()
+        
+        for exec_entry in all_executions:
+            code = exec_entry.get("code", "")
+            if not isinstance(code, str) or not code.strip():
+                continue
+            
+            # Simple file path replacement (no complex AST parsing)
+            # Replace common input file patterns with placeholders
+            code = self._replace_file_paths_simple(code)
+            
+            # Extract imports (simple regex-based, no AST parsing)
+            imports = self._extract_imports_simple(code)
+            all_imports.update(imports)
+            
+            # Create cell
+            cell = {
+                "cell_type": "code",
+                "execution_count": None,
+                "metadata": {
+                    "original_timestamp": exec_entry.get("timestamp", ""),
+                    "success": exec_entry.get("success", False),
+                    "execution_index": exec_entry.get("execution_index", -1)
+                },
+                "outputs": [],
+                "source": code.splitlines(keepends=True)
+            }
+            cells.append(cell)
+        
+        # Step 4: Create first cell with all imports
+        if all_imports:
+            import_cell = {
+                "cell_type": "code",
+                "execution_count": None,
+                "metadata": {},
+                "outputs": [],
+                "source": "\n".join(sorted(all_imports)).splitlines(keepends=True) + ["\n"]
+            }
+            cells.insert(0, import_cell)
+        
+        # Step 4.5: Add argparse setup cell if needed (after imports, before code cells)
+        # Check if any cell uses argparse variables
+        needs_argparse = False
+        for cell in cells:
+            cell_code = ''.join(cell.get("source", []))
+            if any(var in cell_code for var in ["input_clinical", "input_survival", "input_star_counts", "output_dir"]):
+                needs_argparse = True
+                break
+        
+        if needs_argparse:
+            argparse_cell = {
+                "cell_type": "code",
+                "execution_count": None,
+                "metadata": {},
+                "outputs": [],
+                "source": [
+                    "# Parse command-line arguments\n",
+                    "# This cell works both in Jupyter notebook and command-line execution\n",
+                    "import argparse\n",
+                    "import sys\n",
+                    "import os\n",
+                    "\n",
+                    "# Check if running in Jupyter notebook environment\n",
+                    "is_jupyter = 'ipykernel' in sys.modules or 'IPython' in sys.modules\n",
+                    "\n",
+                    "if is_jupyter:\n",
+                    "    # Jupyter environment: use default values (no argparse)\n",
+                    "    input_clinical = None\n",
+                    "    input_star_counts = None\n",
+                    "    input_survival = None\n",
+                    "    output_dir = '.'\n",
+                    "    print(\"Running in Jupyter notebook - using default file paths\")\n",
+                    "    print(\"To use custom paths, modify the variables above or run via command-line\")\n",
+                    "else:\n",
+                    "    # Command-line environment: parse arguments\n",
+                    "    parser = argparse.ArgumentParser(description='Workflow script')\n",
+                    "    parser.add_argument('--input-clinical', type=str, help='Input clinical file path', default=None)\n",
+                    "    parser.add_argument('--input-star-counts', type=str, help='Input star_counts file path', default=None)\n",
+                    "    parser.add_argument('--input-survival', type=str, help='Input survival file path', default=None)\n",
+                    "    parser.add_argument('--output-dir', type=str, help='Output directory', default='.')\n",
+                    "    args = parser.parse_args()\n",
+                    "    \n",
+                    "    # Set input file paths\n",
+                    "    input_clinical = args.input_clinical\n",
+                    "    input_star_counts = args.input_star_counts\n",
+                    "    input_survival = args.input_survival\n",
+                    "    output_dir = args.output_dir\n",
+                    "\n",
+                    "# Create output directory\n",
+                    "os.makedirs(output_dir, exist_ok=True)\n"
+                ]
+            }
+            # Insert after import cell (index 1 if import cell exists, else 0)
+            insert_idx = 1 if all_imports else 0
+            cells.insert(insert_idx, argparse_cell)
+        
+        # Step 5: Create notebook structure
+        notebook = {
+            "cells": cells,
+            "metadata": {
+                "kernelspec": {
+                    "display_name": "Python 3",
+                    "language": "python",
+                    "name": "python3"
+                },
+                "language_info": {
+                    "name": "python",
+                    "version": os.sys.version.split()[0]
+                },
+                "workflow_info": {
+                    "workflow_name": workflow_name,
+                    "generated": datetime.now().isoformat(),
+                    "description": f"Workflow extracted from {len(all_executions)} execution(s) (notebook mode)",
+                    "num_cells": len(cells)
+                }
+            },
+            "nbformat": 4,
+            "nbformat_minor": 4
+        }
+        
+        # Step 6: Save notebook file
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_name = re.sub(r'[^\w\-_]', '_', workflow_name)[:self.MAX_FILENAME_LENGTH] if workflow_name else "workflow"
+        notebook_filename = f"workflow_{safe_name}_{timestamp}.ipynb"
+        notebook_path = self.workflows_dir / notebook_filename
+        
+        try:
+            with open(notebook_path, 'w', encoding='utf-8') as f:
+                json.dump(notebook, f, indent=1, ensure_ascii=False)
+            
+            print(f"✅ Workflow saved as notebook: {notebook_path}")
+            self.logger.log_workflow_complete(str(notebook_path), None)
+            
+            return str(notebook_path)
+        except Exception as e:
+            self.logger.log_error(f"Failed to save notebook: {e}")
+            return None
+    
+    def _replace_file_paths_simple(self, code: str) -> str:
+        """
+        Simple file path replacement for notebook mode.
+        Replaces hardcoded file paths with argparse-style variables or placeholders.
+        
+        This is much simpler than _parameterize_file_paths() - just basic string replacement.
+        
+        Args:
+            code: Code string with hardcoded paths
+            
+        Returns:
+            Code with replaced paths
+        """
+        # For notebook mode, we can use simpler replacement
+        # Just replace common patterns with variables that can be set at the top
+        
+        # Common intermediate file patterns (files generated by workflow, should be read from output_dir)
+        intermediate_patterns = [
+            r'all_deg_results\.csv',
+            r'significant_degs\.csv',
+            r'prognostic_genes\.csv',
+            r'model_coefficients\.csv',
+            r'risk_scores.*\.csv',
+            r'enrichment.*\.csv',
+            r'deg_results\.csv',
+            r'results\.csv'
+        ]
+        
+        # Pattern 1: pd.read_csv() - match entire function call to preserve existing parameters
+        def replace_read_csv_full(match):
+            full_call = match.group(0)
+            filepath = match.group(1)
+            existing_params = match.group(2) if len(match.groups()) > 1 else ""
+            filename = Path(filepath).name
+            
+            # Check if it's an intermediate file (should be read from output_dir)
+            is_intermediate = any(re.search(pattern, filename, re.IGNORECASE) for pattern in intermediate_patterns)
+            
+            if is_intermediate:
+                # Intermediate file: read from output_dir
+                return f"pd.read_csv(os.path.join(output_dir, \"{filename}\"){existing_params})"
+            elif 'clinical' in filename.lower():
+                # Input file: use argparse variable (preserve existing params)
+                return f"pd.read_csv(input_clinical if input_clinical else \"{filename}\"{existing_params})"
+            elif 'survival' in filename.lower():
+                return f"pd.read_csv(input_survival if input_survival else \"{filename}\"{existing_params})"
+            elif 'counts' in filename.lower() or 'star' in filename.lower():
+                return f"pd.read_csv(input_star_counts if input_star_counts else \"{filename}\"{existing_params})"
+            else:
+                # Generic: keep relative path with existing params
+                return f"pd.read_csv(\"{filename}\"{existing_params})"
+        
+        # Pattern 2: .to_csv() with hardcoded paths - replace with output_dir
+        def replace_to_csv(match):
+            filepath = match.group(1)
+            filename = Path(filepath).name
+            rest = match.group(2) if len(match.groups()) > 1 else ""
+            return f".to_csv(os.path.join(output_dir, \"{filename}\"){rest})"
+        
+        # Pattern 3: plt.savefig() with hardcoded paths
+        def replace_savefig(match):
+            filepath = match.group(1)
+            filename = Path(filepath).name
+            rest = match.group(2) if len(match.groups()) > 1 else ""
+            return f"plt.savefig(os.path.join(output_dir, \"{filename}\"){rest})"
+        
+        # Apply replacements - match entire function call including parameters
+        # Pattern: pd.read_csv("path", param1=val1, param2=val2)
+        code = re.sub(
+            r'pd\.read_csv\(["\']([^"\']+)["\']([^)]*)\)',
+            replace_read_csv_full,
+            code
+        )
+        code = re.sub(r'\.to_csv\(["\']([^"\']+)["\']([^)]*)\)', replace_to_csv, code)
+        code = re.sub(r'plt\.savefig\(["\']([^"\']+)["\']([^)]*)\)', replace_savefig, code)
+        
+        # Remove argparse setup from individual cells (will be added at notebook level)
+        # Remove argparse parser creation and args parsing blocks
+        code = re.sub(
+            r'# Parse command-line arguments\s*\nimport argparse\s*\nparser = argparse\.ArgumentParser\([^)]+\)\s*\n(?:parser\.add_argument\([^)]+\)\s*\n)*args = parser\.parse_args\(\)\s*\n\s*# Set input file paths\s*\n(?:input_\w+ = args\.\w+\s*\n)*output_dir = args\.output_dir\s*\nos\.makedirs\(output_dir, exist_ok=True\)\s*\n',
+            '',
+            code,
+            flags=re.MULTILINE
+        )
+        
+        # Ensure os is imported if os.path.join or os.makedirs is used
+        if ("os.path.join" in code or "os.makedirs" in code) and "import os" not in code:
+            # Add import os after other imports
+            lines = code.split('\n')
+            import_end = 0
+            for i, line in enumerate(lines):
+                if line.strip().startswith(('import ', 'from ')):
+                    import_end = i + 1
+                elif import_end > 0 and line.strip() and not line.strip().startswith('#'):
+                    break
+            if import_end > 0:
+                lines.insert(import_end, "import os")
+                code = '\n'.join(lines)
+        
+        # Don't add argparse setup here - it will be added at notebook level
+        if False:  # Disabled - argparse handled at notebook level
+            argparse_setup = """
+# Parse command-line arguments
+import argparse
+parser = argparse.ArgumentParser(description='Workflow script')
+parser.add_argument('--input-clinical', type=str, help='Input clinical file path', default=None)
+parser.add_argument('--input-star-counts', type=str, help='Input star_counts file path', default=None)
+parser.add_argument('--input-survival', type=str, help='Input survival file path', default=None)
+parser.add_argument('--output-dir', type=str, help='Output directory', default='.')
+args = parser.parse_args()
+
+# Set input file paths
+input_clinical = args.input_clinical
+input_star_counts = args.input_star_counts
+input_survival = args.input_survival
+output_dir = args.output_dir
+os.makedirs(output_dir, exist_ok=True)
+"""
+            # Insert after imports
+            lines = code.split('\n')
+            import_end = 0
+            for i, line in enumerate(lines):
+                if line.strip().startswith(('import ', 'from ')):
+                    import_end = i + 1
+                elif import_end > 0 and line.strip() and not line.strip().startswith('#'):
+                    break
+            lines.insert(import_end, argparse_setup.strip())
+            code = '\n'.join(lines)
+        
+        return code
+    
+    def _extract_imports_simple(self, code: str) -> Set[str]:
+        """
+        Simple import extraction using regex (no AST parsing).
+        Preserves import statements with aliases.
+        
+        Args:
+            code: Code string
+            
+        Returns:
+            Set of import statements
+        """
+        imports = set()
+        
+        # Pattern for import statements (with or without alias)
+        import_pattern = re.compile(r'^(import\s+\S+|from\s+\S+\s+import\s+[^\n]+)', re.MULTILINE)
+        
+        for match in import_pattern.finditer(code):
+            import_stmt = match.group(1).strip()
+            if import_stmt:
+                # Normalize common imports to use standard aliases
+                # This ensures consistency across cells
+                normalized = self._normalize_import(import_stmt)
+                imports.add(normalized)
+        
+        return imports
+    
+    def _normalize_import(self, import_stmt: str) -> str:
+        """
+        Normalize import statements to use standard aliases.
+        
+        Args:
+            import_stmt: Import statement string
+            
+        Returns:
+            Normalized import statement
+        """
+        # Standard alias mappings
+        alias_mappings = {
+            r'^import pandas$': 'import pandas as pd',
+            r'^import numpy$': 'import numpy as np',
+            r'^import matplotlib\.pyplot$': 'import matplotlib.pyplot as plt',
+            r'^import seaborn$': 'import seaborn as sns',
+        }
+        
+        # Check if already has alias
+        if ' as ' in import_stmt:
+            return import_stmt
+        
+        # Try to normalize
+        for pattern, replacement in alias_mappings.items():
+            if re.match(pattern, import_stmt):
+                return replacement
+        
+        return import_stmt
+    
     def _parameterize_file_paths(self, code: str) -> str:
         """
         Parameterize hardcoded file paths in code.
@@ -2152,10 +2768,13 @@ if __name__ == "__main__":
         Returns:
             Code with parameterized paths
         """
+        # Cache string split result at the start (performance optimization)
+        # This avoids multiple split() calls throughout the method
+        lines = code.split('\n')
+        
         # Add argparse import if not present
         if "import argparse" not in code and "argparse" not in code:
             # Find first import line
-            lines = code.split('\n')
             import_end = 0
             for i, line in enumerate(lines):
                 if line.strip().startswith(('import ', 'from ')):
@@ -2166,9 +2785,11 @@ if __name__ == "__main__":
             # Insert argparse import
             lines.insert(import_end, "import argparse")
             code = '\n'.join(lines)
+            # Update cached lines after modification
+            lines = code.split('\n')
         
         # Add argparse setup at the beginning (after imports, before main code)
-        lines = code.split('\n')
+        # (lines already cached above)
         
         # Find where imports end
         import_end = 0
@@ -2666,8 +3287,28 @@ os.makedirs(output_dir, exist_ok=True)
         
         return used_vars
     
+    def _extract_variable_dependencies(self, node: ast.AST) -> Set[str]:
+        """
+        Extract variable names that are used (read) in an AST node.
+        
+        Args:
+            node: AST node to analyze
+            
+        Returns:
+            Set of variable names that are used in this node
+        """
+        dependencies = set()
+        
+        for child in ast.walk(node):
+            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load):
+                # Skip built-in names
+                if child.id not in ['True', 'False', 'None', 'print', 'len', 'str', 'int', 'float', 'list', 'dict', 'set', 'tuple', 'range', 'enumerate', 'zip']:
+                    dependencies.add(child.id)
+        
+        return dependencies
+    
     def _extract_variable_definitions_from_code(
-        self, code: str, required_variables: Set[str]
+        self, code: str, required_variables: Set[str], defined_variables: Optional[Set[str]] = None
     ) -> Optional[str]:
         """
         Extract code that defines required variables from a code block.
@@ -2676,9 +3317,13 @@ os.makedirs(output_dir, exist_ok=True)
         that define variables in required_variables, while avoiding code that
         might fail (e.g., inside try/except blocks that failed).
         
+        IMPORTANT: Only extracts variable definitions whose dependencies are already
+        defined (either in successful executions or in previously extracted definitions).
+        
         Args:
             code: Code string to analyze
             required_variables: Set of variable names that need to be defined
+            defined_variables: Set of variables already defined in successful executions (optional)
             
         Returns:
             Code string containing variable definitions, or None if no definitions found
@@ -2690,32 +3335,57 @@ os.makedirs(output_dir, exist_ok=True)
         if not isinstance(required_variables, set) or not required_variables:
             return None
         
+        # Track variables that are already defined (from successful executions)
+        if defined_variables is None:
+            defined_variables = set()
+        else:
+            defined_variables = set(defined_variables)  # Make a copy
+        
         try:
             tree = ast.parse(code)
             # Cache split result (performance optimization)
             lines = code.split('\n')
-            extracted_lines = []
-            extracted_vars = set()
             
-            # Walk through AST to find assignments that define required variables
-            # We'll extract assignments even from try/except blocks, but remove the try/except wrapper
+            # Single pass: collect all assignments and imports with their dependencies
+            # This replaces 4 separate AST walks with 1 consolidated walk
+            assignment_info = []  # List of (var_name, node, dependencies, line_range, is_in_try)
+            import_info = []  # List of (var_name, node, line_range)
+            
+            # Track which assignments are already in assignment_info to avoid duplicates
+            processed_assignments = set()  # {(lineno, var_name)}
+            
             for node in ast.walk(tree):
-                # Extract assignments (even from try/except blocks)
+                # Process regular assignments
                 if isinstance(node, ast.Assign):
-                    # Check if this assignment defines any required variable
                     for target in node.targets:
                         if isinstance(target, ast.Name):
-                            if target.id in required_variables and target.id not in extracted_vars:
-                                # Extract the assignment statement
-                                start_line = node.lineno - 1
-                                end_line = node.end_lineno if hasattr(node, 'end_lineno') else node.lineno
-                                
-                                # Get the code for this assignment
-                                assignment_code = '\n'.join(lines[start_line:end_line])
-                                extracted_lines.append(assignment_code)
-                                extracted_vars.add(target.id)
+                            if target.id in required_variables:
+                                # Check if already processed (avoid duplicates from try blocks)
+                                assignment_key = (node.lineno, target.id)
+                                if assignment_key not in processed_assignments:
+                                    dependencies = self._extract_variable_dependencies(node.value)
+                                    start_line = node.lineno - 1
+                                    end_line = node.end_lineno if hasattr(node, 'end_lineno') else node.lineno
+                                    assignment_info.append((target.id, node, dependencies, (start_line, end_line), False))
+                                    processed_assignments.add(assignment_key)
                 
-                # Also extract import statements that might be needed
+                # Process assignments inside try/except blocks
+                elif isinstance(node, ast.Try):
+                    for stmt in node.body:
+                        if isinstance(stmt, ast.Assign):
+                            for target in stmt.targets:
+                                if isinstance(target, ast.Name):
+                                    if target.id in required_variables:
+                                        # Check if already processed
+                                        assignment_key = (stmt.lineno, target.id)
+                                        if assignment_key not in processed_assignments:
+                                            dependencies = self._extract_variable_dependencies(stmt.value)
+                                            start_line = stmt.lineno - 1
+                                            end_line = stmt.end_lineno if hasattr(stmt, 'end_lineno') else stmt.lineno
+                                            assignment_info.append((target.id, stmt, dependencies, (start_line, end_line), True))
+                                            processed_assignments.add(assignment_key)
+                
+                # Process imports
                 elif isinstance(node, ast.Import):
                     for alias in node.names:
                         if alias.asname:
@@ -2723,12 +3393,10 @@ os.makedirs(output_dir, exist_ok=True)
                         else:
                             var_name = alias.name.split('.')[0]
                         
-                        if var_name in required_variables and var_name not in extracted_vars:
+                        if var_name in required_variables:
                             start_line = node.lineno - 1
                             end_line = node.end_lineno if hasattr(node, 'end_lineno') else node.lineno
-                            import_code = '\n'.join(lines[start_line:end_line])
-                            extracted_lines.append(import_code)
-                            extracted_vars.add(var_name)
+                            import_info.append((var_name, node, (start_line, end_line)))
                 
                 elif isinstance(node, ast.ImportFrom):
                     for alias in node.names:
@@ -2737,32 +3405,68 @@ os.makedirs(output_dir, exist_ok=True)
                         else:
                             var_name = alias.name
                         
-                        if var_name in required_variables and var_name not in extracted_vars:
+                        if var_name in required_variables:
                             start_line = node.lineno - 1
                             end_line = node.end_lineno if hasattr(node, 'end_lineno') else node.lineno
-                            import_code = '\n'.join(lines[start_line:end_line])
-                            extracted_lines.append(import_code)
-                            extracted_vars.add(var_name)
+                            import_info.append((var_name, node, (start_line, end_line)))
             
-            # Also check try/except blocks for variable definitions
-            # Extract assignments from try blocks (remove the try/except wrapper)
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Try):
-                    for stmt in node.body:
-                        if isinstance(stmt, ast.Assign):
-                            for target in stmt.targets:
-                                if isinstance(target, ast.Name):
-                                    if target.id in required_variables and target.id not in extracted_vars:
-                                        start_line = stmt.lineno - 1
-                                        end_line = stmt.end_lineno if hasattr(stmt, 'end_lineno') else stmt.lineno
-                                        assignment_code = '\n'.join(lines[start_line:end_line])
-                                        extracted_lines.append(assignment_code)
-                                        extracted_vars.add(target.id)
+            # Second pass: extract assignments in dependency order
+            # Only extract assignments whose dependencies are satisfied
+            extracted_lines = []
+            extracted_vars = set(defined_variables)  # Start with already defined variables
+            remaining_assignments = assignment_info.copy()
+            max_iterations = len(remaining_assignments) * 2  # Prevent infinite loops
+            iteration = 0
+            
+            while remaining_assignments and iteration < max_iterations:
+                iteration += 1
+                newly_extracted = []
+                
+                for var_name, node, dependencies, (start_line, end_line), is_in_try in remaining_assignments:
+                    # Check if all dependencies are satisfied
+                    if var_name not in extracted_vars:
+                        # Check if all dependencies are defined
+                        missing_deps = dependencies - extracted_vars
+                        
+                        if not missing_deps:
+                            # All dependencies are satisfied, extract this assignment
+                            assignment_code = '\n'.join(lines[start_line:end_line])
+                            extracted_lines.append(assignment_code)
+                            extracted_vars.add(var_name)
+                            newly_extracted.append((var_name, node, dependencies, (start_line, end_line), is_in_try))
+                
+                # Remove extracted assignments from remaining list
+                for item in newly_extracted:
+                    if item in remaining_assignments:
+                        remaining_assignments.remove(item)
+                
+                # If no new assignments were extracted, break to avoid infinite loop
+                if not newly_extracted:
+                    break
+            
+            # Extract import statements that might be needed (already collected in single pass)
+            for var_name, node, (start_line, end_line) in import_info:
+                if var_name not in extracted_vars:
+                    import_code = '\n'.join(lines[start_line:end_line])
+                    extracted_lines.append(import_code)
+                    extracted_vars.add(var_name)
             
             if extracted_lines:
                 # Add a comment explaining why this code is included
                 header = f"# Variable definitions extracted from failed execution (required by successful code)"
                 return f"{header}\n{chr(10).join(extracted_lines)}"
+            
+            # If we couldn't extract all required variables due to missing dependencies, log a warning
+            if remaining_assignments:
+                missing_vars = {var_name for var_name, _, _, _, _ in remaining_assignments}
+                missing_deps = set()
+                for _, _, deps, _, _ in remaining_assignments:
+                    missing_deps.update(deps - extracted_vars)
+                
+                self.logger.logger.warning(
+                    f"Could not extract some variable definitions due to missing dependencies. "
+                    f"Missing variables: {missing_vars}, Missing dependencies: {missing_deps}"
+                )
             
         except SyntaxError as e:
             # If syntax error, try a simpler regex-based approach for assignments

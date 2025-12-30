@@ -61,7 +61,7 @@ class WorkflowService:
         session_start_time: Optional[datetime] = None,
         filter_by_session: bool = True,
         max_fix_attempts: int = 2,
-        save_mode: str = "simple"  # "llm" or "simple"
+        save_mode: str = "notebook"  # "llm", "simple", or "notebook"
     ) -> Optional[str]:
         """
         Load execute blocks from files and save workflow.
@@ -77,6 +77,7 @@ class WorkflowService:
             session_start_time: Optional session start time for filtering (if None, uses current time)
             filter_by_session: If True, only load files from current session (default: True)
             max_fix_attempts: Maximum number of fix attempts during validation (default: 2)
+            save_mode: Save mode - "llm" for LLM-based generation, "simple" for concatenation, "notebook" for Jupyter notebook (default: "notebook")
         
         Returns:
             Path to saved workflow file, or None if saving failed
@@ -128,7 +129,7 @@ class WorkflowService:
         llm,
         workflow_name: Optional[str] = None,
         max_fix_attempts: int = 2,
-        save_mode: str = "simple"  # "llm" or "simple"
+        save_mode: str = "notebook"  # "llm", "simple", or "notebook"
     ) -> Optional[str]:
         """
         Save workflow from an existing WorkflowTracker instance.
@@ -142,6 +143,7 @@ class WorkflowService:
             llm: LLM instance for workflow generation
             workflow_name: Optional workflow name (auto-extracted if not provided)
             max_fix_attempts: Maximum number of fix attempts during validation (default: 2)
+            save_mode: Save mode - "llm" for LLM-based generation, "simple" for concatenation, "notebook" for Jupyter notebook (default: "notebook")
         
         Returns:
             Path to saved workflow file, or None if saving failed
