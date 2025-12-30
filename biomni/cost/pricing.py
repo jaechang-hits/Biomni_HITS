@@ -82,23 +82,36 @@ PRICING_TABLE: Dict[str, Dict[str, float]] = {
         "currency": "USD",
     },
     # Claude 4.5 models (updated December 2025)
-    # Claude Sonnet 4.5: $3/1M input, $15/1M output (per 1K: $0.003 input, $0.015 output)
+    # AWS Bedrock pricing: https://aws.amazon.com/ko/bedrock/pricing/
+    # Claude Sonnet 4.5: $3.30/1M input, $16.50/1M output (per 1K: $0.0033 input, $0.0165 output)
     "us.anthropic.claude-sonnet-4-5-20250929-v1:0": {
-        "input_price_per_1k_tokens": 0.003,
-        "output_price_per_1k_tokens": 0.015,
+        "input_price_per_1k_tokens": 0.0033,
+        "output_price_per_1k_tokens": 0.0165,
         "currency": "USD",
     },
-    # Claude Haiku 4.5: $1/1M input, $5/1M output (per 1K: $0.001 input, $0.005 output)
+    # Claude Sonnet 4.5 - Long Context: $6.60/1M input, $24.75/1M output (per 1K: $0.0066 input, $0.02475 output)
+    "us.anthropic.claude-sonnet-4-5-20250929-v1:0-long": {
+        "input_price_per_1k_tokens": 0.0066,
+        "output_price_per_1k_tokens": 0.02475,
+        "currency": "USD",
+    },
+    # Claude Haiku 4.5: $1.10/1M input, $5.50/1M output (per 1K: $0.0011 input, $0.0055 output)
     "us.anthropic.claude-haiku-4-5-20251001-v1:0": {
-        "input_price_per_1k_tokens": 0.001,
-        "output_price_per_1k_tokens": 0.005,
+        "input_price_per_1k_tokens": 0.0011,
+        "output_price_per_1k_tokens": 0.0055,
         "currency": "USD",
     },
-    # Claude Opus 4.5: $5/1M input, $25/1M output (per 1K: $0.005 input, $0.025 output)
+    # Claude Opus 4.5: $5.50/1M input, $27.50/1M output (per 1K: $0.0055 input, $0.0275 output)
     # Released November 24, 2025
     "us.anthropic.claude-opus-4-5": {
-        "input_price_per_1k_tokens": 0.005,
-        "output_price_per_1k_tokens": 0.025,
+        "input_price_per_1k_tokens": 0.0055,
+        "output_price_per_1k_tokens": 0.0275,
+        "currency": "USD",
+    },
+    # Claude 3.7 Sonnet: $3/1M input, $15/1M output (per 1K: $0.003 input, $0.015 output)
+    "us.anthropic.claude-3-7-sonnet": {
+        "input_price_per_1k_tokens": 0.003,
+        "output_price_per_1k_tokens": 0.015,
         "currency": "USD",
     },
     
@@ -119,9 +132,18 @@ PRICING_TABLE: Dict[str, Dict[str, float]] = {
         "currency": "USD",
     },
     "gemini-3-pro-preview": {
-        "input_price_per_1k_tokens": 0.00125,
-        "output_price_per_1k_tokens": 0.005,
+        # Gemini 3 Pro Preview pricing (as of Dec 2025)
+        # Standard mode pricing:
+        # - Input: $2.00/1M tokens (prompt <= 200K tokens), $4.00/1M (prompt > 200K tokens)
+        # - Output: $12.00/1M tokens (prompt <= 200K tokens), $18.00/1M (prompt > 200K tokens)
+        # Using <= 200K tokens pricing as default
+        # Reference: https://ai.google.dev/gemini-api/docs/pricing?hl=ko
+        "input_price_per_1k_tokens": 0.002,  # $2.00/1M = $0.002/1K (prompt <= 200K)
+        "output_price_per_1k_tokens": 0.012,  # $12.00/1M = $0.012/1K (prompt <= 200K)
         "currency": "USD",
+        # Note: For prompts > 200K tokens, prices are:
+        # - Input: $0.004/1K ($4.00/1M)
+        # - Output: $0.018/1K ($18.00/1M)
     },
 }
 
