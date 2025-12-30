@@ -876,7 +876,22 @@ class WorkflowNodes:
 
         # Set up retrieval components
         retriever = self._setup_error_fixing_retriever()
-        llm = get_llm(model=Config.ERROR_FIXING_LLM_MODEL_ID)
+        
+        # Try to get token_tracker from agent's main LLM for cost tracking
+        token_tracker = None
+        try:
+            from biomni.cost import CostTrackingLLMWrapper
+            if isinstance(self.llm, CostTrackingLLMWrapper):
+                token_tracker = self.llm.token_tracker
+        except (ImportError, AttributeError):
+            pass
+        
+        llm = get_llm(
+            model=Config.ERROR_FIXING_LLM_MODEL_ID,
+            enable_cost_tracking=True,
+            cost_tracking_context="error_fixing",
+            token_tracker=token_tracker
+        )
         qa_chain = ConversationalRetrievalChain.from_llm(
             llm, retriever, response_if_no_docs_found=""
         )
@@ -1294,7 +1309,7 @@ class A1_HITS(A1):
         # This ensures workflow_tracker is available when configure() is called
         # Note: WorkflowSaver and WorkflowValidator are now handled by WorkflowService
         # We only keep WorkflowTracker in Agent for real-time tracking
-        from .workflow_tracker import WorkflowTracker
+        from biomni.workflow import WorkflowTracker
         
         self.workflow_tracker = WorkflowTracker(work_dir=work_dir)
         
@@ -1411,7 +1426,7 @@ class A1_HITS(A1):
             print(f"💾 Saving workflow... (Found {len(execution_history)} execution(s))")
             
             # Use WorkflowService for cleaner separation
-            from .workflow_service import WorkflowService
+            from biomni.workflow import WorkflowService
             
             # Determine workflows directory
             if self.workflow_tracker.execute_blocks_dir:
@@ -1576,8 +1591,22 @@ class A1_HITS(A1):
         # Extract text from prompt
         text_prompt = PromptExtractor.extract_text(prompt)
 
+        # Try to get token_tracker from agent's main LLM for cost tracking
+        token_tracker = None
+        try:
+            from biomni.cost import CostTrackingLLMWrapper
+            if isinstance(self.llm, CostTrackingLLMWrapper):
+                token_tracker = self.llm.token_tracker
+        except (ImportError, AttributeError):
+            pass
+
         # Perform retrieval
-        tool_llm = get_llm(model=Config.TOOL_LLM_MODEL_ID)
+        tool_llm = get_llm(
+            model=Config.TOOL_LLM_MODEL_ID,
+            enable_cost_tracking=True,
+            cost_tracking_context="tool_retrieval",
+            token_tracker=token_tracker
+        )
         selected_resources = self.retriever.prompt_based_retrieval(
             text_prompt, resources, llm=tool_llm
         )

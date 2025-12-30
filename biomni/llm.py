@@ -1,10 +1,23 @@
 import os
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional, Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
 if TYPE_CHECKING:
     from biomni.config import BiomniConfig
+    from biomni.cost import TokenTracker
+
+# Cost tracking imports (optional)
+try:
+    from biomni.cost import TokenTracker, wrap_llm_with_cost_tracking
+    COST_TRACKING_AVAILABLE = True
+except ImportError:
+    COST_TRACKING_AVAILABLE = False
+    # Define TokenTracker as Any for type hints when import fails
+    TokenTracker = Any  # type: ignore
+    # Define wrap function as no-op when cost tracking is not available
+    def wrap_llm_with_cost_tracking(llm: BaseChatModel, *args: Any, **kwargs: Any) -> BaseChatModel:
+        return llm
 
 SourceType = Literal[
     "OpenAI",
@@ -27,6 +40,10 @@ def get_llm(
     base_url: str | None = None,
     api_key: str | None = None,
     config: Optional["BiomniConfig"] = None,
+    enable_cost_tracking: Optional[bool] = None,
+    cost_tracking_context: str = "unknown",
+    workflow_id: Optional[str] = None,
+    token_tracker: Optional[TokenTracker] = None,
 ) -> BaseChatModel:
     """
     Get a language model instance based on the specified model name and source.
@@ -40,6 +57,10 @@ def get_llm(
         base_url (str): The base URL for custom model serving (e.g., "http://localhost:8000/v1"), default is None
         api_key (str): The API key for the custom llm
         config (BiomniConfig): Optional configuration object. If provided, unspecified parameters will use config values
+        enable_cost_tracking (bool): Enable cost tracking. If None, uses COST_TRACKING_ENABLED env var
+        cost_tracking_context (str): Context identifier for cost tracking (e.g., "workflow_generation")
+        workflow_id (str): Optional workflow identifier for cost tracking
+        token_tracker (TokenTracker): Optional TokenTracker instance (creates new one if not provided)
     """
     # Use config values for any unspecified parameters
     if config is not None:
@@ -61,6 +82,11 @@ def get_llm(
         temperature = 0.7
     if api_key is None:
         api_key = "EMPTY"
+    
+    # Check if cost tracking should be enabled
+    if enable_cost_tracking is None:
+        enable_cost_tracking = os.getenv("COST_TRACKING_ENABLED", "false").lower() == "true"
+    
     # Auto-detect source from model name if not specified
     if source is None:
         env_source = os.getenv("LLM_SOURCE")
@@ -144,7 +170,7 @@ def get_llm(
                         payload.pop("temperature", None)
                     return payload
 
-            return _ChatOpenAIResponsesNoStop(
+            llm = _ChatOpenAIResponsesNoStop(
                 model=model,
                 temperature=1,  # Set to default value for gpt-5, will be removed in payload
                 stop_sequences=stop_sequences,
@@ -152,11 +178,20 @@ def get_llm(
                 output_version="v0",
             )
         else:
-            return ChatOpenAI(
+            llm = ChatOpenAI(
                 model=model,
                 temperature=temperature,
                 stop_sequences=stop_sequences,
             )
+        
+        # Wrap with cost tracking if enabled
+        return wrap_llm_with_cost_tracking(
+            llm=llm,
+            enable_cost_tracking=enable_cost_tracking,
+            token_tracker=token_tracker,
+            context=cost_tracking_context,
+            workflow_id=workflow_id,
+        )
 
     elif source == "AzureOpenAI":
         try:
@@ -167,12 +202,21 @@ def get_llm(
             )
         API_VERSION = "2024-12-01-preview"
         model = model.replace("azure-", "")
-        return AzureChatOpenAI(
+        llm = AzureChatOpenAI(
             openai_api_key=os.getenv("OPENAI_API_KEY"),
             azure_endpoint=os.getenv("OPENAI_ENDPOINT"),
             azure_deployment=model,
             openai_api_version=API_VERSION,
             temperature=temperature,
+        )
+        
+        # Wrap with cost tracking if enabled
+        return wrap_llm_with_cost_tracking(
+            llm=llm,
+            enable_cost_tracking=enable_cost_tracking,
+            token_tracker=token_tracker,
+            context=cost_tracking_context,
+            workflow_id=workflow_id,
         )
 
     elif source == "Anthropic":
@@ -204,11 +248,20 @@ def get_llm(
             except Exception as e:
                 print(f"Note: Could not load ANTHROPIC_API_KEY from bash_profile: {e}")
 
-        return ChatAnthropic(
+        llm = ChatAnthropic(
             model=model,
             temperature=temperature,
             max_tokens=8192,
             stop_sequences=stop_sequences,
+        )
+        
+        # Wrap with cost tracking if enabled
+        return wrap_llm_with_cost_tracking(
+            llm=llm,
+            enable_cost_tracking=enable_cost_tracking,
+            token_tracker=token_tracker,
+            context=cost_tracking_context,
+            workflow_id=workflow_id,
         )
 
     elif source == "Gemini":
@@ -254,12 +307,23 @@ def get_llm(
                 "Please set it or add it to ~/.bash_profile"
             )
 
-        return ChatOpenAI(
+        llm = ChatOpenAI(
             model=model,
             temperature=temperature,
             api_key=gemini_api_key,
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
             # stop_sequences=stop_sequences,
+            # Enable token usage in streaming for Gemini
+            model_kwargs={"stream_options": {"include_usage": True}} if "gemini" in model.lower() else {},
+        )
+        
+        # Wrap with cost tracking if enabled
+        return wrap_llm_with_cost_tracking(
+            llm=llm,
+            enable_cost_tracking=enable_cost_tracking,
+            token_tracker=token_tracker,
+            context=cost_tracking_context,
+            workflow_id=workflow_id,
         )
 
     elif source == "Groq":
@@ -269,12 +333,21 @@ def get_llm(
             raise ImportError(  # noqa: B904
                 "langchain-openai package is required for Groq models. Install with: pip install langchain-openai"
             )
-        return ChatOpenAI(
+        llm = ChatOpenAI(
             model=model,
             temperature=temperature,
             api_key=os.getenv("GROQ_API_KEY"),
             base_url="https://api.groq.com/openai/v1",
             stop_sequences=stop_sequences,
+        )
+        
+        # Wrap with cost tracking if enabled
+        return wrap_llm_with_cost_tracking(
+            llm=llm,
+            enable_cost_tracking=enable_cost_tracking,
+            token_tracker=token_tracker,
+            context=cost_tracking_context,
+            workflow_id=workflow_id,
         )
 
     elif source == "Ollama":
@@ -284,9 +357,18 @@ def get_llm(
             raise ImportError(  # noqa: B904
                 "langchain-ollama package is required for Ollama models. Install with: pip install langchain-ollama"
             )
-        return ChatOllama(
+        llm = ChatOllama(
             model=model,
             temperature=temperature,
+        )
+        
+        # Wrap with cost tracking if enabled
+        return wrap_llm_with_cost_tracking(
+            llm=llm,
+            enable_cost_tracking=enable_cost_tracking,
+            token_tracker=token_tracker,
+            context=cost_tracking_context,
+            workflow_id=workflow_id,
         )
 
     elif source == "Bedrock":
@@ -296,11 +378,20 @@ def get_llm(
             raise ImportError(  # noqa: B904
                 "langchain-aws package is required for Bedrock models. Install with: pip install langchain-aws"
             )
-        return ChatBedrock(
+        llm = ChatBedrock(
             model=model,
             temperature=temperature,
             stop_sequences=stop_sequences,
             region_name=os.getenv("AWS_REGION", "us-east-1"),
+        )
+        
+        # Wrap with cost tracking if enabled
+        return wrap_llm_with_cost_tracking(
+            llm=llm,
+            enable_cost_tracking=enable_cost_tracking,
+            token_tracker=token_tracker,
+            context=cost_tracking_context,
+            workflow_id=workflow_id,
         )
 
     elif source == "Custom":
@@ -322,7 +413,15 @@ def get_llm(
             base_url=base_url,
             api_key=api_key,
         )
-        return llm
+        
+        # Wrap with cost tracking if enabled
+        return wrap_llm_with_cost_tracking(
+            llm=llm,
+            enable_cost_tracking=enable_cost_tracking,
+            token_tracker=token_tracker,
+            context=cost_tracking_context,
+            workflow_id=workflow_id,
+        )
 
     else:
         raise ValueError(

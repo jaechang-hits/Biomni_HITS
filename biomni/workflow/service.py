@@ -9,9 +9,9 @@ from pathlib import Path
 from typing import Optional, List, Dict
 from datetime import datetime
 
-from .workflow_tracker import WorkflowTracker
-from .workflow_saver import WorkflowSaver
-from .workflow_validator import WorkflowValidator
+from biomni.workflow.tracker import WorkflowTracker
+from biomni.workflow.saver import WorkflowSaver
+from biomni.workflow.validator import WorkflowValidator
 
 
 class WorkflowService:
@@ -23,6 +23,34 @@ class WorkflowService:
     - Generate and save workflows
     - Validate saved workflows
     """
+    
+    @staticmethod
+    def _create_saver_and_validator(workflows_path: Path, llm) -> tuple:
+        """
+        Create WorkflowSaver and WorkflowValidator instances.
+        
+        Common logic extracted to avoid duplication.
+        
+        Args:
+            workflows_path: Path to workflows directory
+            llm: LLM instance for workflow generation
+            
+        Returns:
+            Tuple of (saver, validator)
+        """
+        # WorkflowSaver expects work_dir, and creates work_dir/workflows subdirectory
+        # But we want to use workflows_dir directly, so we pass workflows_path.parent as work_dir
+        # and then override workflows_dir
+        saver = WorkflowSaver(llm, str(workflows_path.parent), validator=None)
+        # Override workflows_dir to use the provided directory directly
+        saver.workflows_dir = workflows_path
+        saver.workflows_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Validator also needs work_dir for temp directory
+        validator = WorkflowValidator(str(workflows_path.parent))
+        saver.validator = validator
+        
+        return saver, validator
     
     @staticmethod
     def save_workflow_from_execute_blocks(
@@ -81,17 +109,7 @@ class WorkflowService:
         print(f"📂 Loaded {len(execution_history)} execute block(s) from files")
         
         # Initialize saver and validator
-        # WorkflowSaver expects work_dir, and creates work_dir/workflows subdirectory
-        # But we want to use workflows_dir directly, so we pass workflows_path.parent as work_dir
-        # and then override workflows_dir
-        saver = WorkflowSaver(llm, str(workflows_path.parent), validator=None)
-        # Override workflows_dir to use the provided directory directly
-        saver.workflows_dir = workflows_path
-        saver.workflows_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Validator also needs work_dir for temp directory
-        validator = WorkflowValidator(str(workflows_path.parent))
-        saver.validator = validator
+        saver, validator = WorkflowService._create_saver_and_validator(workflows_path, llm)
         
         # Save and validate workflow
         workflow_path = saver.save_and_validate_workflow(
@@ -131,17 +149,7 @@ class WorkflowService:
         workflows_path = Path(workflows_dir)
         
         # Initialize saver and validator
-        # WorkflowSaver expects work_dir, and creates work_dir/workflows subdirectory
-        # But we want to use workflows_dir directly, so we pass workflows_path.parent as work_dir
-        # and then override workflows_dir
-        saver = WorkflowSaver(llm, str(workflows_path.parent), validator=None)
-        # Override workflows_dir to use the provided directory directly
-        saver.workflows_dir = workflows_path
-        saver.workflows_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Validator also needs work_dir for temp directory
-        validator = WorkflowValidator(str(workflows_path.parent))
-        saver.validator = validator
+        saver, validator = WorkflowService._create_saver_and_validator(workflows_path, llm)
         
         # Save and validate workflow
         workflow_path = saver.save_and_validate_workflow(

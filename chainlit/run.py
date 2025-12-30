@@ -26,6 +26,21 @@ import numpy as np
 from PIL import Image
 from biomni.config import default_config
 from biomni.tool.memory import save_conversation
+
+# Cost tracking imports
+try:
+    from biomni.cost import (
+        CostTrackingLLMWrapper,
+        TokenTracker,
+        CostReport,
+        get_default_token_tracker,
+        get_default_cost_report,
+        is_cost_tracking_enabled,
+    )
+    COST_TRACKING_AVAILABLE = True
+except ImportError:
+    COST_TRACKING_AVAILABLE = False
+    COST_TRACKING_ENABLED = False
 from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
 from chainlit.data.storage_clients.base import BaseStorageClient
 from sqlalchemy import create_engine, event
@@ -48,6 +63,36 @@ SILENCE_THRESHOLD = 2000  # RMS threshold for silence detection (lower = more se
 SILENCE_TIMEOUT_MS = 1500  # Milliseconds of silence before auto-stopping (1.5 seconds)
 
 CURRENT_ABS_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 로깅 설정 (agent 초기화 전에 설정)
+LOG_FILE_PATH = f"{CURRENT_ABS_DIR}/chainlit_stream.log"
+
+# Create logger and set up handlers directly
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Remove any existing handlers to avoid duplicates
+logger.handlers.clear()
+
+# Create and configure handlers
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+# Console handler
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
+
+# File handler for global log
+file_handler = logging.FileHandler(LOG_FILE_PATH, mode="a")
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
+# Prevent propagation to root logger to avoid duplicate logs
+logger.propagate = False
+
+logger.info(f"Logger initialized. Log file: {LOG_FILE_PATH}")
 
 
 def _resolve_biomni_data_path() -> str:
@@ -93,6 +138,21 @@ STREAMING_MAX_TIMEOUT = 3600  # Maximum streaming timeout in seconds (1 hour)
 
 default_config.llm = LLM_MODEL
 default_config.commercial_mode = True
+
+# Cost tracking setup
+COST_TRACKING_ENABLED = (
+    COST_TRACKING_AVAILABLE and is_cost_tracking_enabled()
+    if COST_TRACKING_AVAILABLE
+    else False
+)
+
+if COST_TRACKING_AVAILABLE:
+    logger.info(f"[COST] Cost tracking module available: {COST_TRACKING_AVAILABLE}")
+    logger.info(f"[COST] Cost tracking enabled: {COST_TRACKING_ENABLED}")
+    logger.info(f"[COST] Environment variable COST_TRACKING_ENABLED: {os.getenv('COST_TRACKING_ENABLED', 'not set')}")
+else:
+    logger.warning("[COST] Cost tracking module not available (ImportError)")
+
 # Initialize agent
 agent = A1_HITS(
     path=BIOMNI_DATA_PATH,
@@ -101,35 +161,31 @@ agent = A1_HITS(
     resource_filter_config_path=f"{CURRENT_ABS_DIR}/resource.yaml",
 )
 
-# 로깅 설정
-LOG_FILE_PATH = f"{CURRENT_ABS_DIR}/chainlit_stream.log"
-
-# Create logger and set up handlers directly
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-# Remove any existing handlers to avoid duplicates
-logger.handlers.clear()
-
-# Create and configure handlers
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-
-# Console handler
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_handler.setFormatter(formatter)
-logger.addHandler(console_handler)
-
-# File handler for global log
-file_handler = logging.FileHandler(LOG_FILE_PATH, mode="a")
-file_handler.setLevel(logging.INFO)
-file_handler.setFormatter(formatter)
-logger.addHandler(file_handler)
-
-# Prevent propagation to root logger to avoid duplicate logs
-logger.propagate = False
-
-logger.info(f"Logger initialized. Log file: {LOG_FILE_PATH}")
+# Enable cost tracking for agent's LLM if available and enabled
+# Note: We'll create token tracker per user session in the message handler
+# because cl.user_session is not available at module level
+if COST_TRACKING_ENABLED and COST_TRACKING_AVAILABLE:
+    try:
+        # Check if LLM is already wrapped
+        if not isinstance(agent.llm, CostTrackingLLMWrapper):
+            # Create a default token tracker (will be replaced per session)
+            default_token_tracker = get_default_token_tracker(
+                session_id="chainlit_default",
+                log_dir=os.path.join(CURRENT_ABS_DIR, "costs", "logs"),
+            )
+            
+            # Wrap the LLM with cost tracking
+            agent.llm = CostTrackingLLMWrapper(
+                llm=agent.llm,
+                token_tracker=default_token_tracker,
+                context="agent_main",
+            )
+            logger.info("[COST] Cost tracking enabled for agent LLM (default tracker)")
+        else:
+            logger.info("[COST] Cost tracking already enabled")
+    except Exception as e:
+        logger.error(f"[COST] Failed to enable cost tracking: {e}", exc_info=True)
+        COST_TRACKING_ENABLED = False
 
 # Thread-specific log handler management
 _thread_log_handler = None
@@ -889,6 +945,33 @@ async def main(user_message: cl.Message):
         user_message: The user's message from Chainlit UI.
     """
     print("current dir:", os.getcwd())
+    
+    # Setup cost tracking per user session if enabled
+    if COST_TRACKING_ENABLED and COST_TRACKING_AVAILABLE:
+        try:
+            # Get or create user session ID
+            user_session_id = cl.user_session.get("id", f"session_{os.urandom(8).hex()}")
+            cl.user_session.set("id", user_session_id)
+            
+            # Update token tracker session ID for this user session
+            if isinstance(agent.llm, CostTrackingLLMWrapper):
+                # Instead of creating a new tracker, update the existing tracker's session_id
+                # This preserves the token usage history that may have been accumulated
+                try:
+                    existing_tracker = agent.llm.token_tracker
+                    # Update session_id to match chainlit session
+                    existing_tracker.session_id = f"chainlit_{user_session_id}"
+                    # Update context to a more descriptive name for main agent calls
+                    object.__setattr__(agent.llm, 'context', 'agent_main')
+                    object.__setattr__(agent.llm, 'workflow_id', None)  # Will be set if workflow is saved
+                    logger.info(f"[COST] Token tracker session ID updated: {existing_tracker.session_id}")
+                    logger.info(f"[COST] Context updated to: agent_main")
+                    logger.info(f"[COST] Current history count: {len(existing_tracker.token_usage_history)}")
+                except Exception as e2:
+                    logger.error(f"[COST] Failed to update token_tracker session_id: {e2}", exc_info=True)
+        except Exception as e:
+            logger.warning(f"[COST] Failed to setup session cost tracking: {e}")
+    
     user_data = await _process_user_message(user_message)
     message_history = _update_message_history(user_data)
     agent_input = _convert_to_agent_format(message_history)
@@ -1229,9 +1312,71 @@ async def _process_agent_response(agent_input: list, message_history: list):
             except Exception as e:
                 logger.error(f"Failed to save conversation to memory: {e}")
 
+        # Generate and display cost report if cost tracking is enabled
+        if COST_TRACKING_ENABLED and COST_TRACKING_AVAILABLE:
+            try:
+                # Get token tracker from wrapped LLM
+                if isinstance(agent.llm, CostTrackingLLMWrapper):
+                    token_tracker = agent.llm.token_tracker
+                    
+                    logger.info(f"[COST] Generating cost report for session: {token_tracker.session_id}")
+                    logger.info(f"[COST] Token usage history count: {len(token_tracker.token_usage_history)}")
+                    logger.info(f"[COST] Tracker instance ID: {id(token_tracker)}")
+                    if token_tracker.token_usage_history:
+                        logger.info(f"[COST] First usage session_id: {token_tracker.token_usage_history[0].session_id}")
+                        logger.info(f"[COST] First usage model: {token_tracker.token_usage_history[0].model}")
+                    
+                    # Generate cost report
+                    cost_report = get_default_cost_report()
+                    cost_data = cost_report.generate_session_report(token_tracker)
+                    
+                    logger.info(f"[COST] Cost report generated - Total cost: ${cost_data.get('total_cost', 0):.4f}, Calls: {cost_data.get('total_calls', 0)}")
+                    
+                    # Format and display cost summary (always show, even if cost is 0)
+                    if cost_data.get("total_calls", 0) > 0:
+                        cost_summary = cost_report.format_cost_summary(cost_data)
+                        
+                        # Create a formatted message for chainlit
+                        cost_message = f"""💰 **비용 요약**
+
+**총 비용**: ${cost_data['total_cost']:.4f} {cost_data.get('currency', 'USD')}
+**총 호출 수**: {cost_data.get('total_calls', 0)}회
+
+"""
+                        
+                        # Add model breakdown
+                        if cost_data.get("by_model"):
+                            cost_message += "**모델별 비용**:\n"
+                            for model, data in list(cost_data["by_model"].items())[:5]:  # Top 5 models
+                                cost_message += f"- {model}: ${data['cost']:.4f} ({data['call_count']}회)\n"
+                        
+                        # Add context breakdown
+                        if cost_data.get("by_context"):
+                            cost_message += "\n**컨텍스트별 비용**:\n"
+                            for context, data in list(cost_data["by_context"].items())[:5]:  # Top 5 contexts
+                                cost_message += f"- {context}: ${data['cost']:.4f} ({data['call_count']}회)\n"
+                        
+                        # Save detailed report to file
+                        report_file = cost_report.save_report(
+                            cost_data,
+                            log_dir=os.path.join(CURRENT_ABS_DIR, "costs", "logs")
+                        )
+                        cost_message += f"\n📄 상세 리포트: `{report_file}`"
+                        
+                        await cl.Message(content=cost_message).send()
+                        logger.info(f"[COST] Cost report displayed: ${cost_data['total_cost']:.4f}")
+                    else:
+                        logger.info("[COST] No LLM calls tracked in this session")
+                else:
+                    logger.warning("[COST] Agent LLM is not wrapped with CostTrackingLLMWrapper")
+            except Exception as e:
+                logger.error(f"[COST] Failed to generate cost report: {e}", exc_info=True)
+                import traceback
+                logger.error(f"[COST] Traceback: {traceback.format_exc()}")
+
         # Save workflow after agent execution completes using WorkflowService (independent approach)
         try:
-            from biomni.agent.workflow_service import WorkflowService
+            from biomni.workflow import WorkflowService
             from pathlib import Path
             
             execution_history = agent.workflow_tracker.get_execution_history()

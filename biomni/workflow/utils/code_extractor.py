@@ -290,4 +290,72 @@ class CodeExtractor:
             all_imports.extend(imports)
         
         return self.merge_imports([all_imports])
+    
+    def find_import_section(self, code: str, return_char_positions: bool = False) -> Optional[Dict]:
+        """
+        Find the import section in code.
+        
+        Args:
+            code: Code string to analyze
+            return_char_positions: If True, return character positions; if False, return line numbers
+            
+        Returns:
+            Dictionary with "start" and "end" keys, or None if no import section found.
+            If return_char_positions=True: {"start": int, "end": int} (character positions)
+            If return_char_positions=False: {"start_line": int, "end_line": int} (line numbers, 0-based)
+        """
+        lines = code.split('\n')
+        import_start = None
+        import_end = None
+        
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith(('import ', 'from ')):
+                if import_start is None:
+                    import_start = i
+                import_end = i + 1
+            elif import_start is not None and stripped and not stripped.startswith('#'):
+                # End of import section
+                break
+        
+        if import_start is not None:
+            if return_char_positions:
+                # Calculate character positions
+                start_pos = sum(len(lines[i]) + 1 for i in range(import_start))
+                end_pos = sum(len(lines[i]) + 1 for i in range(import_end)) if import_end else start_pos
+                return {"start": start_pos, "end": end_pos}
+            else:
+                # Return line numbers
+                return {"start_line": import_start, "end_line": import_end}
+        
+        return None
+    
+    def extract_output_files(self, code: str) -> List[str]:
+        """
+        Extract output file names from code.
+        
+        Args:
+            code: Code string to analyze
+            
+        Returns:
+            List of output file names (just filenames, not full paths)
+        """
+        output_files = []
+        
+        # Patterns for output file operations
+        patterns = [
+            r'\.to_csv\(["\']([^"\']+)["\']',
+            r'\.savefig\(["\']([^"\']+)["\']',
+            r'gseaplot\([^,]+ofname=["\']([^"\']+)["\']',
+            r'\.to_excel\(["\']([^"\']+)["\']',
+            r'\.to_json\(["\']([^"\']+)["\']',
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, code)
+            for match in matches:
+                file_name = Path(match).name
+                output_files.append(file_name)
+        
+        return list(set(output_files))  # Remove duplicates
 

@@ -1,4 +1,5 @@
 from biomni.agent import A1_HITS
+from biomni.workflow import WorkflowService
 import os
 from datetime import datetime
 import pytz
@@ -6,6 +7,7 @@ import time
 from langchain_core.messages import SystemMessage, HumanMessage
 from biomni.llm import get_llm
 import markdown
+from pathlib import Path
 
 os.environ["LANGSMITH_TRACING"] = "true"
 os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
@@ -22,33 +24,17 @@ os.makedirs(dir_name, exist_ok=True)
 os.chdir(dir_name)
 
 t1 = time.time()
-llm = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
-# llm = "gemini-2.5-pro"
+# llm = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+llm = "gemini-2.5-pro"
 # llm = "solar-pro2"
 # llm = "mistral-small-2506"
 agent = A1_HITS(
     path="./",
     llm=llm,
-    allow_resources=["proteomics", "support_tools", "bio"],
     use_tool_retriever=True,
 )
-user_command = """/workdir_efs/jaechang/work2/thermofisher/data/data_FC_WT_AD_simple.xlsx 파일은 정상 및 알츠하이머(5xFAD) Mouse Frontal Cortex의 Proteomics 분석 결과야. 
-파일을 생성하게 되면 모두 현재 폴더에 저장해줘. 
-이 데이터에 대해서 다음의 전처리 및 분석을 수행해줘.
-
-1. 데이터 전처리 (결측치 처리, 필터링 등):
-- 각 group 별로 결측치의 비율이 50% 이상인 경우 해당 단백질 제거
-- 남은 단백질에 대해서 결측치는 0.0으로 채워줘
-
-2. 아래 분석 수행해줘.
-- Volcano plot 그리기
-- 통계적 유의성이 나타난 상위 50개 단백질들에 대한 Dendrogram을 포함한 Heatmap
-- UMAP 기반 샘플 차원 축소
-- 통계적 유의성이 나타난 상위 10개 단백질들에 대한 Box plot
-- 통계적으로 유의하게 upregulated 및 downregulated 된 단백질들에 대한 Enriched Pathway 분석
-- 위 결과를 바탕으로 upregulated된 단백질 중 신약후보 유전자 5개 추천.
-
-3. 위 결과를 바탕으로 추천된 단백질 중 하나에 대해서 바인딩 포켓 분석 수행.
+user_command = """/workdir_efs/jhjeon/Biomni/data/IonTorrent/TCGA-LUAD.star_counts.tsv.gz 파일은 log2가 적용된 데이터야.
+이 데이터 사용해서 comprehensive 오믹스 분석 수행해줘.
 """
 
 with open("logs.txt", "w") as f1, open("system_prompt.txt", "w") as f2:
@@ -63,3 +49,45 @@ with open("logs.txt", "w") as f1, open("system_prompt.txt", "w") as f2:
 
 t2 = time.time()
 print(f"Elapsed time: {t2 - t1:.2f} seconds")
+
+# Save workflow after execution using WorkflowService (independent approach)
+print("\n" + "="*60)
+print("💾 Saving workflow...")
+print("="*60)
+
+try:
+    # Determine workflows directory from execute_blocks_dir
+    if agent.workflow_tracker.execute_blocks_dir:
+        workflows_root = agent.workflow_tracker.execute_blocks_dir.parent
+        workflows_dir = workflows_root / "workflows"
+    else:
+        # Fallback: use current directory
+        workflows_dir = Path("./workflows")
+    
+    # Use WorkflowService for independent workflow saving
+    workflow_path = WorkflowService.save_workflow_from_tracker(
+        tracker=agent.workflow_tracker,
+        workflows_dir=str(workflows_dir),
+        llm=agent.llm,
+        workflow_name=None,
+        max_fix_attempts=2
+    )
+    
+    if workflow_path:
+        print(f"✅ Workflow saved successfully!")
+        print(f"📁 Location: {workflow_path}")
+    else:
+        print("ℹ️  No workflow to save (no data processing code found)")
+        # Debug: Check execution history
+        history = agent.workflow_tracker.get_execution_history()
+        print(f"   Total executions tracked: {len(history)}")
+        if history:
+            successful = agent.workflow_tracker.get_successful_executions()
+            print(f"   Successful executions: {len(successful)}")
+            stats = agent.workflow_tracker.get_statistics()
+            print(f"   Statistics: {stats}")
+except Exception as e:
+    print(f"❌ Error saving workflow: {e}")
+    import traceback
+    traceback.print_exc()
+print("="*60)

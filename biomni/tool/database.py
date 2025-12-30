@@ -68,6 +68,7 @@ def _query_llm_for_api(
     system_template: str,
     api_key: Optional[str] = None,
     model: str = "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+    token_tracker: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Generate API calls from natural language prompts using Large Language Models.
 
@@ -135,14 +136,67 @@ def _query_llm_for_api(
         else:
             system_prompt = system_template
         # Get LLM instance using the unified interface with config
+        # Enable cost tracking if available
         try:
             from biomni.config import default_config
-
+            import os
+            
+            # Check if cost tracking is enabled globally
+            enable_cost_tracking = os.getenv("COST_TRACKING_ENABLED", "false").lower() == "true"
+            
+            # Try to get token_tracker from agent if not provided
+            if token_tracker is None and enable_cost_tracking:
+                try:
+                    # Try to get token_tracker from agent instance (if available)
+                    from biomni.cost import CostTrackingLLMWrapper
+                    # Try direct import (may fail due to circular import, but we catch it)
+                    try:
+                        from chainlit.run import agent
+                        if isinstance(agent.llm, CostTrackingLLMWrapper):
+                            token_tracker = agent.llm.token_tracker
+                    except (ImportError, AttributeError, RuntimeError):
+                        # Circular import or agent not initialized yet - skip
+                        pass
+                except ImportError:
+                    pass
+            
             llm = get_llm(
-                model=model, temperature=0.0, api_key=api_key, config=default_config
+                model=model, 
+                temperature=0.0, 
+                api_key=api_key, 
+                config=default_config,
+                enable_cost_tracking=enable_cost_tracking,
+                cost_tracking_context="database_query",
+                token_tracker=token_tracker
             )
         except ImportError:
-            llm = get_llm(model=model, temperature=0.0, api_key=api_key or "EMPTY")
+            import os
+            enable_cost_tracking = os.getenv("COST_TRACKING_ENABLED", "false").lower() == "true"
+            
+            # Try to get token_tracker from agent if not provided
+            if token_tracker is None and enable_cost_tracking:
+                try:
+                    # Try to get token_tracker from agent instance (if available)
+                    from biomni.cost import CostTrackingLLMWrapper
+                    # Try direct import (may fail due to circular import, but we catch it)
+                    try:
+                        from chainlit.run import agent
+                        if isinstance(agent.llm, CostTrackingLLMWrapper):
+                            token_tracker = agent.llm.token_tracker
+                    except (ImportError, AttributeError, RuntimeError):
+                        # Circular import or agent not initialized yet - skip
+                        pass
+                except ImportError:
+                    pass
+            
+            llm = get_llm(
+                model=model, 
+                temperature=0.0, 
+                api_key=api_key or "EMPTY",
+                enable_cost_tracking=enable_cost_tracking,
+                cost_tracking_context="database_query",
+                token_tracker=token_tracker
+            )
         # Compose messages
         messages = [
             SystemMessage(content=system_prompt),

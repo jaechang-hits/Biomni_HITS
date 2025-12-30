@@ -15,6 +15,9 @@ from pathlib import Path
 class WorkflowTracker:
     """Tracks code execution history for workflow extraction."""
     
+    # Constants
+    RESULT_TRUNCATE_LENGTH = 10000  # Maximum result length to save in execute blocks
+    
     def __init__(self, work_dir: Optional[str] = None):
         """
         Initialize the workflow tracker.
@@ -117,7 +120,7 @@ class WorkflowTracker:
                 "success": execution_entry["success"],
                 "error_type": execution_entry.get("error_type"),
                 "code": execution_entry["code"],
-                "result": execution_entry["result"][:10000],  # Truncate long results
+                "result": execution_entry["result"][:self.RESULT_TRUNCATE_LENGTH],  # Truncate long results
                 "result_length": len(execution_entry["result"]),
                 "input_files": execution_entry["input_files"],
                 "output_files": execution_entry["output_files"],
@@ -260,8 +263,7 @@ class WorkflowTracker:
                 file_path = Path(match)
                 if not file_path.is_absolute():
                     file_path = work_dir / file_path
-                else:
-                    file_path = Path(match)
+                # If absolute, file_path is already correct, no need to reassign
                 
                 if file_path.exists():
                     input_files.append(str(file_path.resolve()))

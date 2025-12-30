@@ -362,8 +362,26 @@ class WorkflowGenerator:
         else:
             message_content = formatted_prompt
 
+        # Try to get token_tracker from agent for cost tracking
+        token_tracker = None
+        try:
+            from biomni.cost import CostTrackingLLMWrapper
+            try:
+                from chainlit.run import agent
+                if isinstance(agent.llm, CostTrackingLLMWrapper):
+                    token_tracker = agent.llm.token_tracker
+            except (ImportError, AttributeError, RuntimeError):
+                pass
+        except ImportError:
+            pass
+        
         # Create LLM instance and structured output
-        workflow_llm = get_llm(model="us.anthropic.claude-haiku-4-5-20251001-v1:0")
+        workflow_llm = get_llm(
+            model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+            enable_cost_tracking=True,
+            cost_tracking_context="workflow_generation",
+            token_tracker=token_tracker
+        )
         structured_llm = workflow_llm.with_structured_output(WorkflowRecommendation)
 
         message = HumanMessage(content=message_content)
@@ -529,8 +547,26 @@ class WorkflowGenerator:
         # Step 1: Extract text from PDF
         text = self.extract_text_from_pdf(pdf_path)
 
+        # Try to get token_tracker from agent for cost tracking
+        token_tracker = None
+        try:
+            from biomni.cost import CostTrackingLLMWrapper
+            try:
+                from chainlit.run import agent
+                if isinstance(agent.llm, CostTrackingLLMWrapper):
+                    token_tracker = agent.llm.token_tracker
+            except (ImportError, AttributeError, RuntimeError):
+                pass
+        except ImportError:
+            pass
+        
         # Create LLM instance for workflow extraction
-        workflow_llm = get_llm(model="us.anthropic.claude-haiku-4-5-20251001-v1:0")
+        workflow_llm = get_llm(
+            model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+            enable_cost_tracking=True,
+            cost_tracking_context="workflow_extraction",
+            token_tracker=token_tracker
+        )
 
         # Step 2: Extract relevant sections based on mode
         if mode == "integrated":
@@ -627,8 +663,26 @@ class WorkflowGenerator:
         else:
             message_content = prompt_text
 
+        # Try to get token_tracker from agent for cost tracking
+        token_tracker = None
+        try:
+            from biomni.cost import CostTrackingLLMWrapper
+            try:
+                from chainlit.run import agent
+                if isinstance(agent.llm, CostTrackingLLMWrapper):
+                    token_tracker = agent.llm.token_tracker
+            except (ImportError, AttributeError, RuntimeError):
+                pass
+        except ImportError:
+            pass
+        
         # Create LLM instance and structured output
-        workflow_llm = get_llm(model="us.anthropic.claude-haiku-4-5-20251001-v1:0")
+        workflow_llm = get_llm(
+            model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+            enable_cost_tracking=True,
+            cost_tracking_context="workflow_generation",
+            token_tracker=token_tracker
+        )
         structured_llm = workflow_llm.with_structured_output(WorkflowRecommendation)
 
         message = HumanMessage(content=message_content)

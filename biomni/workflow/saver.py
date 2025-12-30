@@ -11,18 +11,48 @@ from pathlib import Path
 from typing import Optional, Dict, List, Set
 from datetime import datetime
 
-from .workflow_tracker import WorkflowTracker
-from .code_filter import CodeFilter
-from .code_extractor import CodeExtractor
-from .workflow_llm_processor import WorkflowLLMProcessor
-from .workflow_validator import WorkflowValidator
-from .workflow_preprocessor import WorkflowPreprocessor
-from .workflow_postprocessor import WorkflowPostprocessor
-from .workflow_logger import WorkflowLogger
+from biomni.workflow.tracker import WorkflowTracker
+from biomni.workflow.utils.code_filter import CodeFilter
+from biomni.workflow.utils.code_extractor import CodeExtractor
+from biomni.workflow.llm_processor import WorkflowLLMProcessor
+from biomni.workflow.validator import WorkflowValidator
+from biomni.workflow.preprocessor import WorkflowPreprocessor
+from biomni.workflow.postprocessor import WorkflowPostprocessor
+from biomni.workflow.logger import WorkflowLogger
 
 
 class WorkflowSaver:
     """Saves workflow code as standalone Python scripts."""
+    
+    # Constants
+    MAX_FILENAME_LENGTH = 50
+    DEFAULT_MAX_FIX_ATTEMPTS = 2
+    DEFAULT_MAX_RETRIES = 5
+    MAX_ERRORS_TO_SHOW = 5
+    MAX_DIFFERENCES_TO_SHOW = 10
+    MAX_STDERR_LENGTH = 1000
+    
+    # Common intermediate file patterns (files that should be read from output_dir)
+    COMMON_INTERMEDIATE_PATTERNS = [
+        r'metadata\.csv', r'filtered.*\.csv', r'deg_results\.csv', 
+        r'results\.csv', r'pca.*\.csv', r'enrichment.*\.csv'
+    ]
+    
+    # Pre-compiled regex patterns for performance
+    _READ_CSV_PATTERN = re.compile(r'pd\.read_csv\(["\']([^"\']+)["\']')
+    _READ_PARQUET_PATTERN = re.compile(r'pd\.read_parquet\(["\']([^"\']+)["\']')
+    _TO_CSV_PATTERN = re.compile(r'\.to_csv\(["\']([^"\']+)["\']([^)]*)\)')
+    _SAVEFIG_PATTERN = re.compile(r'(?:plt\.)?\.savefig\(["\']([^"\']+)["\']([^)]*)\)')
+    _PLT_SAVEFIG_PATTERN = re.compile(r'plt\.savefig\(["\']([^"\']+)["\']([^)]*)\)')
+    _FILE_PATH_ASSIGN_PATTERN = re.compile(r'^(\s*)file_path\s*=\s*["\']([^"\']+)["\']', re.MULTILINE)
+    _READ_CSV_FULL_PATTERN = re.compile(r'pd\.read_csv\(["\']([^"\']+)["\']([^)]*)\)')
+    _READ_PARQUET_FULL_PATTERN = re.compile(r'pd\.read_parquet\(["\']([^"\']+)["\']([^)]*)\)')
+    
+    # Pre-compiled regex patterns for undefined name checking
+    _PD_PATTERN = re.compile(r'\bpd\.')
+    _NP_PATTERN = re.compile(r'\bnp\.')
+    _PLT_PATTERN = re.compile(r'\bplt\.')
+    _SNS_PATTERN = re.compile(r'\bsns\.')
     
     def __init__(self, llm, work_dir: str, validator: Optional['WorkflowValidator'] = None):
         """
@@ -67,16 +97,36 @@ class WorkflowSaver:
         Args:
             tracker: WorkflowTracker instance with execution history
             workflow_name: Optional workflow name (auto-extracted if not provided)
+            save_mode: Save mode - "llm" or "simple" (default: "simple")
             
         Returns:
             Path to saved workflow file, or None if saving failed
         """
+        # Input validation
+        if not isinstance(tracker, WorkflowTracker):
+            self.logger.log_error("Invalid tracker: must be WorkflowTracker instance")
+            return None
+        
+        if workflow_name is not None and not isinstance(workflow_name, str):
+            workflow_name = str(workflow_name) if workflow_name else None
+        
+        if not isinstance(save_mode, str) or save_mode not in ["llm", "simple"]:
+            save_mode = "simple"
+        
         # Get in-memory history first (most up-to-date)
-        in_memory_history = tracker.get_execution_history()
+        try:
+            in_memory_history = tracker.get_execution_history()
+        except Exception as e:
+            self.logger.log_error(f"Failed to get execution history: {e}")
+            return None
         
         # Try to load execute blocks from files (for debugging and reconstruction)
         # Only load files from current session to avoid mixing with previous runs
-        file_history = tracker.load_execute_blocks_from_files(filter_by_session=True)
+        try:
+            file_history = tracker.load_execute_blocks_from_files(filter_by_session=True)
+        except Exception as e:
+            self.logger.logger.warning(f"Failed to load execute blocks from files: {e}")
+            file_history = []
         
         # Decide which history to use
         if in_memory_history:
@@ -132,6 +182,14 @@ class WorkflowSaver:
         Returns:
             Path to saved workflow file, or None if saving failed
         """
+        # Input validation
+        if not isinstance(execution_history, list):
+            self.logger.log_error("Invalid execution_history: must be a list")
+            return None
+        
+        if workflow_name is not None and not isinstance(workflow_name, str):
+            workflow_name = str(workflow_name) if workflow_name else None
+        
         # Log workflow generation start
         if not workflow_name:
             temp_name = "unnamed"
@@ -142,8 +200,14 @@ class WorkflowSaver:
         # Log execution summary
         self.logger.log_execution_summary(execution_history)
         
-        # Filter to data processing code
-        filtered_executions = self.code_filter.filter_executions(execution_history)
+        # Filter to data processing code (with validation)
+        try:
+            filtered_executions = self.code_filter.filter_executions(execution_history)
+            if not isinstance(filtered_executions, list):
+                filtered_executions = []
+        except Exception as e:
+            self.logger.log_error(f"Failed to filter executions: {e}")
+            filtered_executions = []
         
         # Log filtering results
         filter_reasons = {
@@ -170,7 +234,13 @@ class WorkflowSaver:
         # Preprocess executions using rule-based methods (Phase 1: Hybrid approach)
         print("🔧 Preprocessing executions using rule-based methods...")
         self.logger.logger.info("Preprocessing executions using rule-based methods...")
-        preprocessed_data = self.preprocessor.preprocess(filtered_executions)
+        try:
+            preprocessed_data = self.preprocessor.preprocess(filtered_executions)
+            if not isinstance(preprocessed_data, dict):
+                preprocessed_data = {}
+        except Exception as e:
+            self.logger.log_error(f"Failed to preprocess executions: {e}")
+            preprocessed_data = {}
         
         # Log preprocessing results
         self.logger.log_preprocessing_results(preprocessed_data)
@@ -182,7 +252,7 @@ class WorkflowSaver:
         
         # Generate workflow code using LLM with retry logic (Phase 2: Auto-retry)
         expected_output_files = list(preprocessed_data.get('output_file_mapping', {}).keys())
-        max_retries = 5
+        max_retries = self.DEFAULT_MAX_RETRIES
         workflow_code = None
         missing_outputs = []
         all_missing_outputs_history = []  # Track all missing outputs across attempts
@@ -287,7 +357,7 @@ class WorkflowSaver:
         if validation_errors:
             self.logger.log_warning(f"Workflow code validation warnings: {len(validation_errors)}")
             print(f"⚠️  Workflow code validation warnings:")
-            for error in validation_errors[:5]:  # Show first 5 errors
+            for error in validation_errors[:self.MAX_ERRORS_TO_SHOW]:
                 print(f"   - {error}")
                 self.logger.logger.debug(f"Validation error: {error}")
         
@@ -326,24 +396,7 @@ class WorkflowSaver:
     
     def _extract_output_files_from_code(self, code: str) -> List[str]:
         """Extract output file names from workflow code."""
-        output_files = []
-        
-        # Patterns for output file operations
-        patterns = [
-            r'\.to_csv\(["\']([^"\']+)["\']',
-            r'\.savefig\(["\']([^"\']+)["\']',
-            r'gseaplot\([^,]+ofname=["\']([^"\']+)["\']',
-            r'\.to_excel\(["\']([^"\']+)["\']',
-            r'\.to_json\(["\']([^"\']+)["\']',
-        ]
-        
-        for pattern in patterns:
-            matches = re.findall(pattern, code)
-            for match in matches:
-                file_name = Path(match).name
-                output_files.append(file_name)
-        
-        return list(set(output_files))  # Remove duplicates
+        return self.code_extractor.extract_output_files(code)
     
     def generate_workflow_file(
         self,
@@ -362,12 +415,22 @@ class WorkflowSaver:
         Returns:
             Complete workflow file content
         """
+        # Input validation
+        if not isinstance(metadata, dict):
+            metadata = {}
+        
+        if not isinstance(workflow_name, str):
+            workflow_name = str(workflow_name) if workflow_name else "unnamed"
+        
         # If code_blocks is a string, use it directly
         if isinstance(code_blocks, str):
             workflow_code = code_blocks
+        elif isinstance(code_blocks, list):
+            # If it's a list, join them (filter out non-strings)
+            valid_blocks = [str(block) for block in code_blocks if block is not None]
+            workflow_code = "\n\n".join(valid_blocks) if valid_blocks else ""
         else:
-            # If it's a list, join them
-            workflow_code = "\n\n".join(code_blocks) if isinstance(code_blocks, list) else str(code_blocks)
+            workflow_code = str(code_blocks) if code_blocks is not None else ""
         
         # Generate header
         header = self._generate_header(metadata, workflow_name)
@@ -385,15 +448,18 @@ class WorkflowSaver:
         else:
             main_block = ""
         
-        # Combine everything
-        complete_file = f"""{header}
-
-{import_section}
-
-{workflow_code_clean}
-
-{main_block}
-"""
+        # Combine everything (use list join for better performance with large files)
+        parts = [header]
+        if import_section:
+            parts.append("")
+            parts.append(import_section)
+        parts.append("")
+        parts.append(workflow_code_clean)
+        if main_block:
+            parts.append("")
+            parts.append(main_block)
+        
+        complete_file = "\n".join(parts)
         
         return complete_file
     
@@ -407,9 +473,19 @@ class WorkflowSaver:
         Returns:
             Workflow name
         """
+        # Input validation
+        if not isinstance(execution_history, list):
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            return f"workflow_{timestamp}"
+        
         # Try to extract from code patterns
         for execution in execution_history:
+            if not isinstance(execution, dict):
+                continue
+            
             code = execution.get("code", "")
+            if not isinstance(code, str):
+                continue
             
             # Look for common patterns
             # Pattern 1: Function definitions
@@ -447,6 +523,16 @@ class WorkflowSaver:
         Returns:
             Path to saved file
         """
+        # Input validation
+        if not isinstance(workflow_content, str):
+            workflow_content = str(workflow_content) if workflow_content is not None else ""
+        
+        if not isinstance(workflow_name, str):
+            workflow_name = str(workflow_name) if workflow_name else "unnamed"
+        
+        if timestamp is not None and not isinstance(timestamp, str):
+            timestamp = None
+        
         # Sanitize workflow name for filename
         safe_name = self._sanitize_filename(workflow_name)
         if timestamp is None:
@@ -459,15 +545,22 @@ class WorkflowSaver:
         
         file_path = self.workflows_dir / filename
         
-        # Write file
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(workflow_content)
-        
-        if temp:
-            print(f"Workflow saved to temporary file: {file_path}")
-        else:
-            print(f"Workflow saved to: {file_path}")
-        return str(file_path)
+        # Write file with error handling
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(workflow_content)
+            
+            if temp:
+                print(f"Workflow saved to temporary file: {file_path}")
+            else:
+                print(f"Workflow saved to: {file_path}")
+            return str(file_path)
+        except (OSError, IOError, PermissionError) as e:
+            self.logger.log_error(f"Failed to save workflow file: {e}")
+            raise
+        except Exception as e:
+            self.logger.log_error(f"Unexpected error saving workflow file: {e}")
+            raise
     
     def _generate_and_save_workflow_description(
         self,
@@ -528,8 +621,8 @@ class WorkflowSaver:
         safe_name = safe_name.strip('_')
         
         # Limit length
-        if len(safe_name) > 50:
-            safe_name = safe_name[:50]
+        if len(safe_name) > self.MAX_FILENAME_LENGTH:
+            safe_name = safe_name[:self.MAX_FILENAME_LENGTH]
         
         return safe_name or "unnamed"
     
@@ -626,7 +719,20 @@ if __name__ == "__main__":
 '''
     
     def _remove_imports_from_code(self, code: str) -> str:
-        """Remove import statements from code to avoid duplication."""
+        """
+        Remove import statements from code to avoid duplication.
+        
+        Args:
+            code: Code string
+            
+        Returns:
+            Code without import statements
+        """
+        # Input validation
+        if not isinstance(code, str):
+            return ""
+        
+        # Cache split result (performance optimization)
         lines = code.split('\n')
         cleaned_lines = []
         
@@ -676,9 +782,16 @@ if __name__ == "__main__":
         """
         Validate that import aliases match their usage in code.
         
+        Args:
+            code: Code string to validate
+            
         Returns:
             List of import-related error messages
         """
+        # Input validation
+        if not isinstance(code, str) or not code.strip():
+            return []
+        
         errors = []
         
         try:
@@ -703,25 +816,25 @@ if __name__ == "__main__":
                         else:
                             imports[alias.name] = f"{module}.{alias.name}" if module else alias.name
             
-            # Check for common alias patterns used in code
-            code_str = code
+            # Check for common alias patterns used in code (use pre-compiled patterns)
             common_patterns = {
-                'pd': ('pandas', 'import pandas as pd'),
-                'np': ('numpy', 'import numpy as np'),
-                'plt': ('matplotlib.pyplot', 'import matplotlib.pyplot as plt'),
-                'sns': ('seaborn', 'import seaborn as sns'),
-                'stats': ('scipy.stats', 'from scipy import stats'),
+                'pd': ('pandas', 'import pandas as pd', self._PD_PATTERN),
+                'np': ('numpy', 'import numpy as np', self._NP_PATTERN),
+                'plt': ('matplotlib.pyplot', 'import matplotlib.pyplot as plt', self._PLT_PATTERN),
+                'sns': ('seaborn', 'import seaborn as sns', self._SNS_PATTERN),
             }
             
-            for alias, (module, expected_import) in common_patterns.items():
-                # Check if alias is used in code
-                if re.search(rf'\b{alias}\.', code_str):
+            for alias, (module, expected_import, pattern) in common_patterns.items():
+                # Check if alias is used in code (use pre-compiled pattern)
+                if pattern.search(code):
                     # Check if import exists with correct alias
                     if alias not in imports:
                         errors.append(f"Code uses '{alias}.' but missing import: {expected_import}")
                     elif imports[alias] != module and not imports[alias].endswith(module.split('.')[-1]):
                         errors.append(f"Code uses '{alias}.' but import mismatch: found '{imports[alias]}', expected '{module}'")
         
+        except SyntaxError as e:
+            errors.append(f"Syntax error in import validation: {e}")
         except Exception as e:
             errors.append(f"Import validation error: {str(e)}")
         
@@ -731,9 +844,16 @@ if __name__ == "__main__":
         """
         Basic check for potentially undefined names.
         
+        Args:
+            code: Code string to check
+            
         Returns:
             List of undefined name warnings
         """
+        # Input validation
+        if not isinstance(code, str) or not code.strip():
+            return []
+        
         errors = []
         
         try:
@@ -761,7 +881,7 @@ if __name__ == "__main__":
                 elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
                     defined_names.add(node.id)
             
-            # Check for common undefined patterns
+            # Check for common undefined patterns (cache split result and use pre-compiled patterns)
             code_lines = code.split('\n')
             for i, line in enumerate(code_lines, 1):
                 # Skip comments and empty lines
@@ -769,14 +889,14 @@ if __name__ == "__main__":
                 if not stripped or stripped.startswith('#'):
                     continue
                 
-                # Check for common undefined patterns
-                if re.search(r'\bpd\.', line) and 'pd' not in defined_names:
+                # Check for common undefined patterns (use pre-compiled patterns for performance)
+                if self._PD_PATTERN.search(line) and 'pd' not in defined_names:
                     errors.append(f"Line {i}: 'pd' may be undefined (use 'import pandas as pd')")
-                if re.search(r'\bnp\.', line) and 'np' not in defined_names:
+                if self._NP_PATTERN.search(line) and 'np' not in defined_names:
                     errors.append(f"Line {i}: 'np' may be undefined (use 'import numpy as np')")
-                if re.search(r'\bplt\.', line) and 'plt' not in defined_names:
+                if self._PLT_PATTERN.search(line) and 'plt' not in defined_names:
                     errors.append(f"Line {i}: 'plt' may be undefined (use 'import matplotlib.pyplot as plt')")
-                if re.search(r'\bsns\.', line) and 'sns' not in defined_names:
+                if self._SNS_PATTERN.search(line) and 'sns' not in defined_names:
                     errors.append(f"Line {i}: 'sns' may be undefined (use 'import seaborn as sns')")
         
         except Exception as e:
@@ -1010,9 +1130,14 @@ if __name__ == "__main__":
                             # Class not imported, add it
                             fixes.append((correct_import, -1))
         
-        except (SyntaxError, Exception) as e:
-            # If AST parsing fails, return empty list (fallback to regex)
-            pass
+        except SyntaxError as e:
+            # If AST parsing fails, log and return empty list (fallback to regex)
+            self.logger.logger.warning(f"Syntax error in AST parsing for alias detection: {e}")
+            return []
+        except Exception as e:
+            # Unexpected errors should be logged
+            self.logger.logger.error(f"Unexpected error in AST parsing for alias detection: {e}")
+            return []
         
         return fixes
     
@@ -1020,7 +1145,7 @@ if __name__ == "__main__":
         self,
         tracker: WorkflowTracker,
         workflow_name: Optional[str] = None,
-        max_fix_attempts: int = 2,
+        max_fix_attempts: int = DEFAULT_MAX_FIX_ATTEMPTS,
         save_mode: str = "simple"  # "llm" or "simple"
     ) -> Optional[str]:
         """
@@ -1032,12 +1157,26 @@ if __name__ == "__main__":
         Args:
             tracker: WorkflowTracker instance with execution history
             workflow_name: Optional workflow name (auto-extracted if not provided)
-            max_fix_attempts: Maximum number of fix attempts (default: 2, only used in LLM mode)
+            max_fix_attempts: Maximum number of fix attempts (default: DEFAULT_MAX_FIX_ATTEMPTS, only used in LLM mode)
             save_mode: Save mode - "llm" for LLM-based generation, "simple" for concatenation (default: "simple")
             
         Returns:
             Path to saved workflow file, or None if saving/validation failed
         """
+        # Input validation
+        if not isinstance(tracker, WorkflowTracker):
+            self.logger.log_error("Invalid tracker: must be WorkflowTracker instance")
+            return None
+        
+        if workflow_name is not None and not isinstance(workflow_name, str):
+            workflow_name = str(workflow_name) if workflow_name else None
+        
+        if not isinstance(max_fix_attempts, int) or max_fix_attempts < 0:
+            max_fix_attempts = self.DEFAULT_MAX_FIX_ATTEMPTS
+        
+        if not isinstance(save_mode, str) or save_mode not in ["llm", "simple"]:
+            save_mode = "simple"
+        
         # Save initial workflow (returns temporary file path)
         temp_workflow_path = self.save_workflow(tracker, workflow_name, save_mode=save_mode)
         
@@ -1058,8 +1197,21 @@ if __name__ == "__main__":
             return final_path
         
         # Get input/output files for validation
-        expected_outputs = tracker.get_expected_output_files()
-        input_files = tracker.get_input_files()
+        try:
+            expected_outputs = tracker.get_expected_output_files()
+            if not isinstance(expected_outputs, dict):
+                expected_outputs = {}
+        except Exception as e:
+            self.logger.log_error(f"Failed to get expected output files: {e}")
+            expected_outputs = {}
+        
+        try:
+            input_files = tracker.get_input_files()
+            if not isinstance(input_files, list):
+                input_files = []
+        except Exception as e:
+            self.logger.log_error(f"Failed to get input files: {e}")
+            input_files = []
         
         # Validation requires output files, but input files are optional
         # (some workflows may not have explicit input files, or they may be hardcoded)
@@ -1085,8 +1237,17 @@ if __name__ == "__main__":
             input_files = []  # Use empty list for validation
         
         # Read current workflow code
-        with open(temp_workflow_path, 'r', encoding='utf-8') as f:
-            current_workflow = f.read()
+        try:
+            with open(temp_workflow_path, 'r', encoding='utf-8') as f:
+                current_workflow = f.read()
+            if not isinstance(current_workflow, str):
+                current_workflow = ""
+        except (FileNotFoundError, IOError, OSError) as e:
+            self.logger.log_error(f"Failed to read workflow file: {e}")
+            return None
+        except Exception as e:
+            self.logger.log_error(f"Unexpected error reading workflow file: {e}")
+            return None
         
         # Validate workflow
         print(f"🔍 Validating workflow...")
@@ -1128,32 +1289,44 @@ if __name__ == "__main__":
         if fixed_workflow != current_workflow:
             print(f"✓ Applied rule-based fixes, re-validating...")
             # Save fixed workflow
-            with open(temp_workflow_path, 'w', encoding='utf-8') as f:
-                f.write(fixed_workflow)
-            
-            validation_result = self.validator.validate_workflow(
-                temp_workflow_path,
-                input_files,
-                expected_outputs
-            )
-            
-            if validation_result["valid"]:
-                print(f"✅ Workflow fixed with rule-based approach and validated!")
-                self.logger.logger.info("Workflow fixed and validated after rule-based fixes")
-                final_path = self._finalize_workflow_file(temp_workflow_path)
+            try:
+                with open(temp_workflow_path, 'w', encoding='utf-8') as f:
+                    f.write(fixed_workflow)
                 
-                # Log completion
-                description_path = self._get_description_path_for_workflow(final_path)
-                self.logger.log_workflow_complete(final_path, description_path)
-                log_file_path = self.logger.get_log_file_path()
-                if log_file_path:
-                    print(f"📋 Detailed log saved to: {log_file_path}")
+                # Validate fixed workflow
+                validation_result = self.validator.validate_workflow(
+                    temp_workflow_path,
+                    input_files,
+                    expected_outputs
+                )
                 
-                return final_path
-            
-            current_workflow = fixed_workflow
-            error_msg = self._build_comprehensive_error_message(validation_result)
-            print(f"⚠️  Rule-based fixes were not sufficient")
+                if validation_result.get("valid", False):
+                    print(f"✅ Workflow fixed with rule-based approach and validated!")
+                    self.logger.logger.info("Workflow fixed and validated after rule-based fixes")
+                    final_path = self._finalize_workflow_file(temp_workflow_path)
+                    
+                    # Log completion
+                    description_path = self._get_description_path_for_workflow(final_path)
+                    self.logger.log_workflow_complete(final_path, description_path)
+                    log_file_path = self.logger.get_log_file_path()
+                    if log_file_path:
+                        print(f"📋 Detailed log saved to: {log_file_path}")
+                    
+                    return final_path
+                
+                # Validation still failed
+                current_workflow = fixed_workflow
+                error_msg = self._build_comprehensive_error_message(validation_result)
+                print(f"⚠️  Rule-based fixes were not sufficient")
+                
+            except (OSError, IOError, PermissionError) as e:
+                self.logger.log_error(f"Failed to save rule-based fixed workflow: {e}")
+                current_workflow = fixed_workflow
+                error_msg = "Failed to save fixed workflow"
+            except Exception as e:
+                self.logger.log_error(f"Unexpected error saving rule-based fixed workflow: {e}")
+                current_workflow = fixed_workflow
+                error_msg = "Failed to save fixed workflow"
         
         # Skip LLM-based fixes in simple mode (just concatenate code blocks, no LLM processing)
         if save_mode == "simple":
@@ -1256,20 +1429,46 @@ if __name__ == "__main__":
         Returns:
             Workflow code with missing output file generation code added
         """
+        # Input validation
+        if not isinstance(workflow_code, str):
+            workflow_code = str(workflow_code) if workflow_code is not None else ""
+        
+        if not isinstance(missing_output_files, list):
+            missing_output_files = []
+        
+        if not isinstance(executions, list):
+            executions = []
+        
+        if not isinstance(preprocessed_data, dict):
+            preprocessed_data = {}
+        
         output_file_mapping = preprocessed_data.get("output_file_mapping", {})
+        if not isinstance(output_file_mapping, dict):
+            output_file_mapping = {}
+        
         code_blocks_to_add = []
         
         for missing_file in missing_output_files:
+            if not isinstance(missing_file, str):
+                continue
+            
             # Find which executions generate this file
             exec_indices = output_file_mapping.get(missing_file, [])
+            if not isinstance(exec_indices, list):
+                exec_indices = []
             
             if not exec_indices:
                 # Try to find by filename pattern matching
                 for exec_idx, execution in enumerate(executions, 1):
+                    if not isinstance(execution, dict):
+                        continue
+                    
                     output_files = execution.get("output_files", [])
+                    if not isinstance(output_files, list):
+                        continue
+                    
                     for output_file in output_files:
-                        from pathlib import Path
-                        if Path(output_file).name == missing_file:
+                        if isinstance(output_file, str) and Path(output_file).name == missing_file:
                             exec_indices = [exec_idx]
                             break
                     if exec_indices:
@@ -1278,10 +1477,17 @@ if __name__ == "__main__":
             if exec_indices:
                 # Extract code from these executions
                 for exec_idx in exec_indices:
-                    if 0 < exec_idx <= len(executions):
+                    # Validate exec_idx: must be positive and within bounds
+                    if not isinstance(exec_idx, int) or exec_idx < 1:
+                        continue
+                    
+                    if exec_idx <= len(executions):
                         execution = executions[exec_idx - 1]
+                        if not isinstance(execution, dict):
+                            continue
+                        
                         code = execution.get("code", "")
-                        if code:
+                        if isinstance(code, str) and code:
                             # Clean and prepare code block
                             code_block = self._prepare_code_block_for_insertion(
                                 code, missing_file
@@ -1330,14 +1536,23 @@ if __name__ == "__main__":
         Returns:
             Prepared code block, or None if preparation failed
         """
+        # Input validation
+        if not isinstance(code, str) or not code.strip():
+            return None
+        
+        if not isinstance(output_file, str):
+            output_file = str(output_file) if output_file else ""
+        
         # Remove comments that are too specific
+        # Cache split result (performance optimization)
         lines = code.split('\n')
         cleaned_lines = []
         
         for line in lines:
             # Skip very specific debug comments
-            if line.strip().startswith('#') and any(
-                keyword in line.lower() for keyword in ['debug', 'test', 'check', 'verify']
+            stripped = line.strip()
+            if stripped.startswith('#') and any(
+                keyword in stripped.lower() for keyword in ['debug', 'test', 'check', 'verify']
             ):
                 continue
             cleaned_lines.append(line)
@@ -1346,22 +1561,23 @@ if __name__ == "__main__":
         
         # Try to parameterize hardcoded paths
         # Replace absolute paths with relative or parameterized paths
-        from pathlib import Path
-        import re
-        
-        # Pattern for absolute paths
-        abs_path_pattern = r'["\'](/[^"\']+)["\']'
+        # Pattern for absolute paths (pre-compiled for performance)
+        abs_path_pattern = re.compile(r'["\'](/[^"\']+)["\']')
         
         def replace_path(match):
             path_str = match.group(1)
-            path_obj = Path(path_str)
-            # If it's the output file, use parameterized name
-            if path_obj.name == output_file:
-                return f'"{output_file}"'
-            # Otherwise, try to make it relative
-            return f'"{path_obj.name}"'
+            try:
+                path_obj = Path(path_str)
+                # If it's the output file, use parameterized name
+                if path_obj.name == output_file:
+                    return f'"{output_file}"'
+                # Otherwise, try to make it relative
+                return f'"{path_obj.name}"'
+            except (ValueError, TypeError):
+                # Invalid path, keep original
+                return match.group(0)
         
-        code = re.sub(abs_path_pattern, replace_path, code)
+        code = abs_path_pattern.sub(replace_path, code)
         
         return code.strip() if code.strip() else None
     
@@ -1378,7 +1594,15 @@ if __name__ == "__main__":
         Returns:
             Workflow code with inserted code blocks
         """
+        # Input validation
+        if not isinstance(workflow_code, str):
+            workflow_code = str(workflow_code) if workflow_code is not None else ""
+        
+        if not isinstance(code_blocks, list):
+            return workflow_code
+        
         # Find the best insertion point (before main block or at end of process_data)
+        # Cache split result (performance optimization)
         lines = workflow_code.split('\n')
         
         # Try to find process_data function or main block
@@ -1393,8 +1617,14 @@ if __name__ == "__main__":
             if 'def process_data' in line:
                 # Find the end of this function
                 for j in range(i + 1, len(lines)):
-                    if lines[j].strip() and not lines[j].startswith(' ') and not lines[j].startswith('\t'):
-                        if not lines[j].strip().startswith('def ') and not lines[j].strip().startswith('class '):
+                    # Validate index bounds
+                    if j >= len(lines):
+                        break
+                    
+                    line_j = lines[j]
+                    stripped_j = line_j.strip()
+                    if stripped_j and not line_j.startswith(' ') and not line_j.startswith('\t'):
+                        if not stripped_j.startswith('def ') and not stripped_j.startswith('class '):
                             insertion_point = j
                             break
                 if insertion_point < len(lines):
@@ -1407,13 +1637,17 @@ if __name__ == "__main__":
         insertion_code.append("# ============================================================================")
         
         for block_info in code_blocks:
-            file_name = block_info["file"]
-            code = block_info["code"]
+            if not isinstance(block_info, dict):
+                continue
+            
+            file_name = block_info.get("file", "unknown")
+            code = block_info.get("code", "")
             exec_idx = block_info.get("execution_index", "?")
             
-            insertion_code.append(f"\n# Generate {file_name} (from execution {exec_idx})")
-            insertion_code.append(code)
-            insertion_code.append("")  # Empty line between blocks
+            if isinstance(file_name, str) and isinstance(code, str) and code:
+                insertion_code.append(f"\n# Generate {file_name} (from execution {exec_idx})")
+                insertion_code.append(code)
+                insertion_code.append("")  # Empty line between blocks
         
         insertion_code.append("# ============================================================================\n")
         
@@ -1435,27 +1669,46 @@ if __name__ == "__main__":
         Returns:
             Workflow code with missing imports added
         """
+        # Input validation
+        if not isinstance(workflow_code, str):
+            workflow_code = str(workflow_code) if workflow_code is not None else ""
+        
+        if not isinstance(code_blocks, list):
+            return workflow_code
+        
         # Extract imports from all inserted code blocks
         all_required_imports = set()
         
+        # Pre-compiled regex patterns for performance
+        import_patterns = {
+            re.compile(r'\bpd\.'): 'import pandas as pd',
+            re.compile(r'\bnp\.'): 'import numpy as np',
+            re.compile(r'\bplt\.'): 'import matplotlib.pyplot as plt',
+            re.compile(r'\bsns\.'): 'import seaborn as sns',
+            re.compile(r'\bstats\.'): 'from scipy import stats',
+            re.compile(r'\bgp\.'): 'import gseapy as gp',
+        }
+        
         for block_info in code_blocks:
-            code = block_info["code"]
+            if not isinstance(block_info, dict):
+                continue
+            
+            code = block_info.get("code", "")
+            if not isinstance(code, str) or not code.strip():
+                continue
+            
             # Extract imports from this code block
-            imports = self.code_extractor.extract_imports(code)
-            all_required_imports.update(imports)
+            try:
+                imports = self.code_extractor.extract_imports(code)
+                if isinstance(imports, list):
+                    all_required_imports.update(imports)
+            except Exception:
+                # Skip if extraction fails
+                pass
             
             # Also check for common import patterns used in code
-            import_patterns = {
-                r'\bpd\.': 'import pandas as pd',
-                r'\bnp\.': 'import numpy as np',
-                r'\bplt\.': 'import matplotlib.pyplot as plt',
-                r'\bsns\.': 'import seaborn as sns',
-                r'\bstats\.': 'from scipy import stats',
-                r'\bgp\.': 'import gseapy as gp',
-            }
-            
             for pattern, import_stmt in import_patterns.items():
-                if re.search(pattern, code):
+                if pattern.search(code):
                     all_required_imports.add(import_stmt)
         
         # Extract current imports from workflow
@@ -1465,9 +1718,15 @@ if __name__ == "__main__":
         # Find missing imports
         missing_imports = []
         for required_import in all_required_imports:
+            if not isinstance(required_import, str):
+                continue
+            
             # Check if this import or a similar one exists
             import_exists = False
             for current_import in current_imports_set:
+                if not isinstance(current_import, str):
+                    continue
+                
                 # Check if modules match (handle aliases)
                 required_module = self._extract_module_name(required_import)
                 current_module = self._extract_module_name(current_import)
@@ -1481,14 +1740,29 @@ if __name__ == "__main__":
         # Add missing imports to workflow
         if missing_imports:
             # Find import section
-            import_section = self._find_import_section_in_code(workflow_code)
-            if import_section:
-                # Insert after import section
+            try:
+                import_section = self.code_extractor.find_import_section(workflow_code, return_char_positions=False)
+                if import_section and isinstance(import_section, dict):
+                    # Insert after import section
+                    new_imports = "\n".join(missing_imports)
+                    # Cache split result (performance optimization)
+                    lines = workflow_code.split('\n')
+                    insert_pos = import_section.get("end_line", 0)
+                    if 0 <= insert_pos <= len(lines):
+                        lines.insert(insert_pos, new_imports)
+                        workflow_code = '\n'.join(lines)
+                    else:
+                        # Invalid position, add at beginning
+                        workflow_code = new_imports + "\n\n" + workflow_code
+                else:
+                    # No import section found, add at beginning
+                    new_imports = "\n".join(missing_imports)
+                    workflow_code = new_imports + "\n\n" + workflow_code
+            except Exception as e:
+                # Fallback: add at beginning
+                self.logger.logger.warning(f"Failed to find import section: {e}")
                 new_imports = "\n".join(missing_imports)
-                lines = workflow_code.split('\n')
-                insert_pos = import_section["end_line"]
-                lines.insert(insert_pos, new_imports)
-                workflow_code = '\n'.join(lines)
+                workflow_code = new_imports + "\n\n" + workflow_code
                 print(f"✓ Added {len(missing_imports)} missing import(s) for inserted code blocks")
                 self.logger.logger.info(
                     f"Added {len(missing_imports)} missing imports: {missing_imports}"
@@ -1516,26 +1790,6 @@ if __name__ == "__main__":
             module = import_stmt
         return module
     
-    def _find_import_section_in_code(self, code: str) -> Optional[Dict]:
-        """Find the import section in code and return its end line number."""
-        lines = code.split('\n')
-        import_start = None
-        import_end = None
-        
-        for i, line in enumerate(lines):
-            stripped = line.strip()
-            if stripped.startswith(('import ', 'from ')):
-                if import_start is None:
-                    import_start = i
-                import_end = i + 1
-            elif import_start is not None and stripped and not stripped.startswith('#'):
-                # End of import section
-                break
-        
-        if import_end is not None:
-            return {"start_line": import_start, "end_line": import_end}
-        
-        return None
     
     def _finalize_workflow_file(self, temp_file_path: str) -> str:
         """
@@ -1547,19 +1801,32 @@ if __name__ == "__main__":
         Returns:
             Path to finalized workflow file
         """
-        temp_path = Path(temp_file_path)
-        if not temp_path.exists():
+        # Input validation
+        if not isinstance(temp_file_path, str):
+            return str(temp_file_path) if temp_file_path is not None else ""
+        
+        try:
+            temp_path = Path(temp_file_path)
+            if not temp_path.exists():
+                self.logger.log_warning(f"Temporary file does not exist: {temp_file_path}")
+                return temp_file_path
+            
+            # Remove .tmp from filename
+            final_filename = temp_path.name.replace('.tmp.py', '.py')
+            final_path = temp_path.parent / final_filename
+            
+            # Rename file with error handling
+            try:
+                temp_path.rename(final_path)
+                print(f"✅ Workflow finalized: {final_path}")
+                return str(final_path)
+            except (OSError, PermissionError) as e:
+                self.logger.log_error(f"Failed to rename temporary file: {e}")
+                # Return original path if rename fails
+                return temp_file_path
+        except Exception as e:
+            self.logger.log_error(f"Unexpected error finalizing workflow file: {e}")
             return temp_file_path
-        
-        # Remove .tmp from filename
-        final_filename = temp_path.name.replace('.tmp.py', '.py')
-        final_path = temp_path.parent / final_filename
-        
-        # Rename file
-        temp_path.rename(final_path)
-        
-        print(f"✅ Workflow finalized: {final_path}")
-        return str(final_path)
     
     def _build_comprehensive_error_message(
         self, 
@@ -1600,12 +1867,13 @@ if __name__ == "__main__":
         
         # Add all differences
         differences = validation_result.get("differences", [])
-        if differences:
+        if isinstance(differences, list) and differences:
             error_parts.append(f"\nDETAILED DIFFERENCES ({len(differences)} total):")
-            for i, diff in enumerate(differences[:10], 1):  # Show up to 10 differences
-                error_parts.append(f"  {i}. {diff}")
-            if len(differences) > 10:
-                error_parts.append(f"  ... and {len(differences) - 10} more differences")
+            for i, diff in enumerate(differences[:self.MAX_DIFFERENCES_TO_SHOW], 1):
+                if isinstance(diff, str):
+                    error_parts.append(f"  {i}. {diff}")
+            if len(differences) > self.MAX_DIFFERENCES_TO_SHOW:
+                error_parts.append(f"  ... and {len(differences) - self.MAX_DIFFERENCES_TO_SHOW} more differences")
         
         # Add file comparison details
         file_comparisons = validation_result.get("output_files_match", {})
@@ -1619,8 +1887,8 @@ if __name__ == "__main__":
         
         # Add stderr if available (from workflow execution)
         stderr = validation_result.get("stderr")
-        if stderr:
-            error_parts.append(f"\nEXECUTION STDERR:\n{stderr[:1000]}")  # Limit to 1000 chars
+        if isinstance(stderr, str) and stderr:
+            error_parts.append(f"\nEXECUTION STDERR:\n{stderr[:self.MAX_STDERR_LENGTH]}")
         
         # Add stdout if available (might contain useful info)
         stdout = validation_result.get("stdout")
@@ -1716,11 +1984,19 @@ if __name__ == "__main__":
         Returns:
             Path to saved workflow file, or None if saving failed
         """
-        # Filter to only successful executions
-        successful_executions = [
-            exec_entry for exec_entry in execution_history
-            if exec_entry.get("success", False)
-        ]
+        # Input validation
+        if not isinstance(execution_history, list):
+            self.logger.log_error("Invalid execution_history: must be a list")
+            return None
+        
+        if workflow_name is not None and not isinstance(workflow_name, str):
+            workflow_name = str(workflow_name) if workflow_name else None
+        
+        # Filter to only successful executions (with validation)
+        successful_executions = []
+        for exec_entry in execution_history:
+            if isinstance(exec_entry, dict) and exec_entry.get("success", False):
+                successful_executions.append(exec_entry)
         
         if not successful_executions:
             print("⚠️  No successful executions found to save workflow.")
@@ -1736,16 +2012,30 @@ if __name__ == "__main__":
         # Extract variables used in successful executions
         used_variables = set()
         for exec_entry in successful_executions:
-            code = exec_entry.get("code", "").strip()
-            if code:
-                used_variables.update(self._extract_variable_usage(code))
+            if not isinstance(exec_entry, dict):
+                continue
+            
+            code = exec_entry.get("code", "")
+            if isinstance(code, str) and code.strip():
+                try:
+                    used_variables.update(self._extract_variable_usage(code))
+                except Exception:
+                    # Skip if extraction fails
+                    pass
         
         # Step 2: Extract variable definitions from successful executions
         defined_variables = set()
         for exec_entry in successful_executions:
-            code = exec_entry.get("code", "").strip()
-            if code:
-                defined_variables.update(self._extract_variable_definitions(code))
+            if not isinstance(exec_entry, dict):
+                continue
+            
+            code = exec_entry.get("code", "")
+            if isinstance(code, str) and code.strip():
+                try:
+                    defined_variables.update(self._extract_variable_definitions(code))
+                except Exception:
+                    # Skip if extraction fails
+                    pass
         
         # Step 3: Find missing variable definitions
         missing_variables = used_variables - defined_variables
@@ -1760,18 +2050,25 @@ if __name__ == "__main__":
             ]
             
             for exec_entry in failed_executions:
-                code = exec_entry.get("code", "").strip()
-                if code:
-                    # Extract only variable definitions that are needed
-                    var_def_code = self._extract_variable_definitions_from_code(
-                        code, missing_variables
-                    )
-                    if var_def_code:
-                        dependency_code_blocks.append(var_def_code)
-                        # Update defined variables to avoid duplicates
-                        new_defs = self._extract_variable_definitions(var_def_code)
-                        defined_variables.update(new_defs)
-                        missing_variables -= new_defs
+                if not isinstance(exec_entry, dict):
+                    continue
+                
+                code = exec_entry.get("code", "")
+                if isinstance(code, str) and code.strip():
+                    try:
+                        # Extract only variable definitions that are needed
+                        var_def_code = self._extract_variable_definitions_from_code(
+                            code, missing_variables
+                        )
+                        if var_def_code:
+                            dependency_code_blocks.append(var_def_code)
+                            # Update defined variables to avoid duplicates
+                            new_defs = self._extract_variable_definitions(var_def_code)
+                            defined_variables.update(new_defs)
+                            missing_variables -= new_defs
+                    except Exception:
+                        # Skip if extraction fails
+                        pass
         
         # Step 5: Concatenate code blocks (dependencies first, then successful executions)
         code_blocks = []
@@ -1781,8 +2078,11 @@ if __name__ == "__main__":
         
         # Add successful execution code blocks
         for exec_entry in successful_executions:
-            code = exec_entry.get("code", "").strip()
-            if code:
+            if not isinstance(exec_entry, dict):
+                continue
+            
+            code = exec_entry.get("code", "")
+            if isinstance(code, str) and code.strip():
                 code_blocks.append(code)
         
         if not code_blocks:
@@ -1878,42 +2178,39 @@ if __name__ == "__main__":
             elif import_end > 0 and line.strip() and not line.strip().startswith('#'):
                 break
         
-        # First, identify intermediate output files (files saved by .to_csv() in the workflow)
+        # Identify intermediate output files (files saved by .to_csv() in the workflow)
         # These should be read from output_dir, not input_file
-        intermediate_files = set()
-        
-        # Find all files saved with .to_csv()
-        to_csv_matches = re.findall(r'\.to_csv\(["\']([^"\']+)["\']', code)
-        intermediate_files.update(to_csv_matches)
-        
-        # Find all files saved with .savefig() or plt.savefig()
-        savefig_matches = re.findall(r'(?:plt\.)?\.savefig\(["\']([^"\']+)["\']', code)
-        intermediate_files.update(savefig_matches)
-        
-        # Also check for common intermediate file patterns
-        common_intermediate_patterns = [
-            r'metadata\.csv', r'filtered.*\.csv', r'deg_results\.csv', 
-            r'results\.csv', r'pca.*\.csv', r'enrichment.*\.csv'
-        ]
+        # Call once and cache result (performance optimization)
+        intermediate_files = self._identify_intermediate_files(code)
         
         # Detect multiple input file patterns in code
         # Find all unique file paths that are read (not intermediate files)
         input_file_patterns = set()
         
-        # Find pd.read_csv() calls with hardcoded paths
-        read_csv_matches = re.findall(r'pd\.read_csv\(["\']([^"\']+)["\']', code)
-        read_parquet_matches = re.findall(r'pd\.read_parquet\(["\']([^"\']+)["\']', code)
+        # Find pd.read_csv() calls with hardcoded paths (use pre-compiled patterns)
+        read_csv_matches = self._READ_CSV_PATTERN.findall(code)
+        read_parquet_matches = self._READ_PARQUET_PATTERN.findall(code)
         
         # Combine all file paths
         all_file_paths = set(read_csv_matches + read_parquet_matches)
         
+        # Pre-compile intermediate patterns for performance
+        intermediate_patterns_compiled = [re.compile(pattern, re.IGNORECASE) for pattern in self.COMMON_INTERMEDIATE_PATTERNS]
+        
         # Filter out intermediate files and absolute paths
         for file_path in all_file_paths:
-            file_name = Path(file_path).name
-            # Skip intermediate files
+            if not isinstance(file_path, str):
+                continue
+            
+            try:
+                file_name = Path(file_path).name
+            except (ValueError, TypeError):
+                continue
+            
+            # Skip intermediate files (use compiled patterns for performance)
             is_intermediate = (
                 file_path in intermediate_files or
-                any(re.search(pattern, file_path, re.IGNORECASE) for pattern in common_intermediate_patterns)
+                any(pattern.search(file_path) for pattern in intermediate_patterns_compiled)
             )
             
             if not is_intermediate:
@@ -1954,19 +2251,27 @@ if __name__ == "__main__":
                 var_name = f'input_{file_type}'
                 
                 argparse_args.append(f"parser.add_argument('{arg_name}', type=str, help='Input {file_type} file path', default=None)")
-                default_file_name = Path(default_path).name
-                input_file_vars.append(f"""# Set {file_type} input file path
+                try:
+                    default_file_name = Path(default_path).name
+                    # Sanitize file_type and default_file_name for glob pattern (security: prevent pattern injection)
+                    safe_file_type = file_type.replace('[', '\\[').replace(']', '\\]').replace('*', '\\*').replace('?', '\\?')
+                    safe_default_file_name = default_file_name.replace('[', '\\[').replace(']', '\\]').replace('*', '\\*').replace('?', '\\?')
+                    
+                    input_file_vars.append(f"""# Set {file_type} input file path
 if args.{var_name}:
     {var_name} = args.{var_name}
 else:
     # Default: try to find matching file in current directory
     import glob
-    matching_files = glob.glob('*{file_type}*') + glob.glob('*{default_file_name}*')
+    matching_files = glob.glob('*{safe_file_type}*') + glob.glob('*{safe_default_file_name}*')
     if matching_files:
         {var_name} = matching_files[0]
     else:
         {var_name} = "{default_path}"
 """)
+                except (ValueError, TypeError):
+                    # Invalid path, skip this file type
+                    continue
             
             argparse_setup = f"""
 # Parse command-line arguments
@@ -2012,35 +2317,27 @@ os.makedirs(output_dir, exist_ok=True)
         lines.insert(import_end, argparse_setup)
         code = '\n'.join(lines)
         
-        # First, identify intermediate output files (files saved by .to_csv() in the workflow)
-        # These should be read from output_dir, not input_file
-        intermediate_files = set()
-        
-        # Find all files saved with .to_csv()
-        to_csv_matches = re.findall(r'\.to_csv\(["\']([^"\']+)["\']', code)
-        intermediate_files.update(to_csv_matches)
-        
-        # Find all files saved with .savefig() or plt.savefig()
-        savefig_matches = re.findall(r'(?:plt\.)?\.savefig\(["\']([^"\']+)["\']', code)
-        intermediate_files.update(savefig_matches)
-        
-        # Also check for common intermediate file patterns
-        common_intermediate_patterns = [
-            r'metadata\.csv', r'filtered.*\.csv', r'deg_results\.csv', 
-            r'results\.csv', r'pca.*\.csv', r'enrichment.*\.csv'
-        ]
+        # Re-identify intermediate files from regenerated code (after argparse_setup insertion)
+        # This is necessary because code was regenerated and may have different file paths
+        # Cache result to avoid duplicate work (performance optimization)
+        intermediate_files_updated = self._identify_intermediate_files(code)
+        intermediate_files = intermediate_files_updated
         
         # Replace common input file patterns
         # Pattern: pd.read_csv("file.csv", ...) - need to match the entire call
         # But skip intermediate files (they should use output_dir)
+        # Use pre-compiled intermediate patterns (performance optimization)
         def replace_read_csv(match):
             file_path = match.group(1)
             rest = match.group(2) if len(match.groups()) > 1 else ""
             
+            if not isinstance(file_path, str):
+                return match.group(0)
+            
             # Check if this is an intermediate file (saved in this workflow)
             is_intermediate = (
                 file_path in intermediate_files or
-                any(re.search(pattern, file_path, re.IGNORECASE) for pattern in common_intermediate_patterns)
+                any(pattern.search(file_path) for pattern in intermediate_patterns_compiled)
             )
             
             if is_intermediate:
@@ -2070,21 +2367,20 @@ os.makedirs(output_dir, exist_ok=True)
                 return f'pd.read_csv(input_file if input_file else "{file_path}"{rest})'
         
         # Match pd.read_csv("file.csv") or pd.read_csv("file.csv", ...)
-        # This regex matches the opening quote, file path, closing quote, and captures any remaining parameters
-        code = re.sub(
-            r'pd\.read_csv\(["\']([^"\']+)["\']([^)]*)\)',
-            replace_read_csv,
-            code
-        )
+        # Use pre-compiled pattern (performance optimization)
+        code = self._READ_CSV_FULL_PATTERN.sub(replace_read_csv, code)
         
         # Also handle pd.read_parquet with same logic
         def replace_read_parquet(match):
             file_path = match.group(1)
             rest = match.group(2) if len(match.groups()) > 1 else ""
             
+            if not isinstance(file_path, str):
+                return match.group(0)
+            
             is_intermediate = (
                 file_path in intermediate_files or
-                any(re.search(pattern, file_path, re.IGNORECASE) for pattern in common_intermediate_patterns)
+                any(pattern.search(file_path) for pattern in intermediate_patterns_compiled)
             )
             
             if is_intermediate:
@@ -2107,53 +2403,93 @@ os.makedirs(output_dir, exist_ok=True)
                 
                 return f'pd.read_parquet(input_file if input_file else "{file_path}"{rest})'
         
-        code = re.sub(
-            r'pd\.read_parquet\(["\']([^"\']+)["\']([^)]*)\)',
-            replace_read_parquet,
-            code
-        )
+        # Use pre-compiled pattern (performance optimization)
+        code = self._READ_PARQUET_FULL_PATTERN.sub(replace_read_parquet, code)
         
         # Pattern: file_path = "file.csv" (but only if it's a simple assignment, not already using input_file)
         # Don't replace if file_path is already set from input_file
         if 'file_path = input_file' not in code:
-            code = re.sub(
-                r'^(\s*)file_path\s*=\s*["\']([^"\']+)["\']',
-                lambda m: f'{m.group(1)}file_path = input_file if input_file else "{m.group(2)}"',
-                code,
-                flags=re.MULTILINE
-            )
+            def replace_file_path_assign(match):
+                indent = match.group(1)
+                file_path = match.group(2)
+                return f'{indent}file_path = input_file if input_file else "{file_path}"'
+            
+            code = self._FILE_PATH_ASSIGN_PATTERN.sub(replace_file_path_assign, code)
         
-        # Also handle pd.read_csv(file_path, ...) - but only if file_path is not already set from input_file
-        # If file_path was already replaced with input_file logic, keep using file_path variable
-        # This handles cases like: file_path = input_file if input_file else "file.csv"; pd.read_csv(file_path, ...)
-        # In this case, we don't need to replace file_path in pd.read_csv() because it's already parameterized
+        # Replace output file patterns (use pre-compiled patterns for performance)
+        def replace_to_csv(match):
+            file_path = match.group(1)
+            rest = match.group(2) if len(match.groups()) > 1 else ""
+            try:
+                file_name = Path(file_path).name
+                return f".to_csv(os.path.join(output_dir, '{file_name}'){rest})"
+            except (ValueError, TypeError):
+                return match.group(0)
         
-        # Replace output file patterns
-        # Pattern: .to_csv('file.csv') or .to_csv('file.csv', index=False, ...)
-        # Match entire function call including all parameters
-        code = re.sub(
-            r'\.to_csv\(["\']([^"\']+)["\']([^)]*)\)',
-            lambda m: f".to_csv(os.path.join(output_dir, '{Path(m.group(1)).name}'){m.group(2)})",
-            code
-        )
+        code = self._TO_CSV_PATTERN.sub(replace_to_csv, code)
         
-        # Pattern: .savefig('file.png') or .savefig('file.png', dpi=300, ...)
-        # Match entire function call including all parameters
-        code = re.sub(
-            r'\.savefig\(["\']([^"\']+)["\']([^)]*)\)',
-            lambda m: f".savefig(os.path.join(output_dir, '{Path(m.group(1)).name}'){m.group(2)})",
-            code
-        )
+        def replace_savefig(match):
+            file_path = match.group(1)
+            rest = match.group(2) if len(match.groups()) > 1 else ""
+            try:
+                file_name = Path(file_path).name
+                return f".savefig(os.path.join(output_dir, '{file_name}'){rest})"
+            except (ValueError, TypeError):
+                return match.group(0)
         
-        # Pattern: plt.savefig('file.png') or plt.savefig('file.png', dpi=300, ...)
-        # Match entire function call including all parameters
-        code = re.sub(
-            r'plt\.savefig\(["\']([^"\']+)["\']([^)]*)\)',
-            lambda m: f"plt.savefig(os.path.join(output_dir, '{Path(m.group(1)).name}'){m.group(2)})",
-            code
-        )
+        code = self._SAVEFIG_PATTERN.sub(replace_savefig, code)
+        
+        def replace_plt_savefig(match):
+            file_path = match.group(1)
+            rest = match.group(2) if len(match.groups()) > 1 else ""
+            try:
+                file_name = Path(file_path).name
+                return f"plt.savefig(os.path.join(output_dir, '{file_name}'){rest})"
+            except (ValueError, TypeError):
+                return match.group(0)
+        
+        code = self._PLT_SAVEFIG_PATTERN.sub(replace_plt_savefig, code)
         
         return code
+    
+    def _identify_intermediate_files(self, code: str) -> set:
+        """
+        Identify intermediate output files (files saved by .to_csv(), .savefig() in the workflow).
+        These should be read from output_dir, not input_file.
+        
+        Args:
+            code: Code string to analyze
+            
+        Returns:
+            Set of intermediate file paths
+        """
+        # Input validation
+        if not isinstance(code, str):
+            return set()
+        
+        intermediate_files = set()
+        
+        # Find all files saved with .to_csv() (use pre-compiled pattern)
+        to_csv_matches = self._TO_CSV_PATTERN.findall(code)
+        for match in to_csv_matches:
+            if isinstance(match, tuple) and len(match) > 0:
+                file_path = match[0]
+                if isinstance(file_path, str):
+                    intermediate_files.add(file_path)
+            elif isinstance(match, str):
+                intermediate_files.add(match)
+        
+        # Find all files saved with .savefig() or plt.savefig() (use pre-compiled pattern)
+        savefig_matches = self._SAVEFIG_PATTERN.findall(code)
+        for match in savefig_matches:
+            if isinstance(match, tuple) and len(match) > 0:
+                file_path = match[0]
+                if isinstance(file_path, str):
+                    intermediate_files.add(file_path)
+            elif isinstance(match, str):
+                intermediate_files.add(match)
+        
+        return intermediate_files
     
     def _fix_import_aliases_simple(self, code: str, import_section: str) -> str:
         """
@@ -2171,6 +2507,10 @@ os.makedirs(output_dir, exist_ok=True)
         Returns:
             Code with fixed imports
         """
+        # Input validation
+        if not isinstance(code, str):
+            return str(code) if code is not None else ""
+        
         try:
             # Use AST to detect alias mismatches
             alias_fixes = self._detect_alias_mismatches_ast(code)
@@ -2180,6 +2520,7 @@ os.makedirs(output_dir, exist_ok=True)
             
             self.logger.logger.info(f"Detected {len(alias_fixes)} import alias fixes needed in simple mode")
             
+            # Cache split result (performance optimization)
             lines = code.split('\n')
             changes_made = False
             
@@ -2213,9 +2554,13 @@ os.makedirs(output_dir, exist_ok=True)
             else:
                 return code
         
-        except (SyntaxError, Exception) as e:
+        except SyntaxError as e:
             # If AST parsing fails, log and return original code
-            self.logger.logger.warning(f"Failed to fix import aliases in simple mode: {e}")
+            self.logger.logger.warning(f"Syntax error fixing import aliases in simple mode: {e}")
+            return code
+        except Exception as e:
+            # Unexpected errors should be logged
+            self.logger.logger.error(f"Unexpected error fixing import aliases in simple mode: {e}")
             return code
     
     def _extract_variable_definitions(self, code: str) -> Set[str]:
@@ -2228,6 +2573,10 @@ os.makedirs(output_dir, exist_ok=True)
         Returns:
             Set of variable names that are defined
         """
+        # Input validation
+        if not isinstance(code, str) or not code.strip():
+            return set()
+        
         defined_vars = set()
         
         try:
@@ -2285,6 +2634,10 @@ os.makedirs(output_dir, exist_ok=True)
         Returns:
             Set of variable names that are used
         """
+        # Input validation
+        if not isinstance(code, str) or not code.strip():
+            return set()
+        
         used_vars = set()
         
         try:
@@ -2302,9 +2655,14 @@ os.makedirs(output_dir, exist_ok=True)
                     if isinstance(node.value, ast.Name) and isinstance(node.value.ctx, ast.Load):
                         used_vars.add(node.value.id)
                         
-        except (SyntaxError, Exception) as e:
-            # If parsing fails, return empty set
-            pass
+        except SyntaxError as e:
+            # If syntax error, log and return empty set
+            self.logger.logger.warning(f"Syntax error extracting variable usage: {e}")
+            return set()
+        except Exception as e:
+            # Unexpected errors should be logged
+            self.logger.logger.error(f"Unexpected error extracting variable usage: {e}")
+            return set()
         
         return used_vars
     
@@ -2325,11 +2683,16 @@ os.makedirs(output_dir, exist_ok=True)
         Returns:
             Code string containing variable definitions, or None if no definitions found
         """
-        if not required_variables:
+        # Input validation
+        if not isinstance(code, str) or not code.strip():
+            return None
+        
+        if not isinstance(required_variables, set) or not required_variables:
             return None
         
         try:
             tree = ast.parse(code)
+            # Cache split result (performance optimization)
             lines = code.split('\n')
             extracted_lines = []
             extracted_vars = set()
@@ -2401,9 +2764,10 @@ os.makedirs(output_dir, exist_ok=True)
                 header = f"# Variable definitions extracted from failed execution (required by successful code)"
                 return f"{header}\n{chr(10).join(extracted_lines)}"
             
-        except (SyntaxError, Exception) as e:
-            # If parsing fails, try a simpler regex-based approach for assignments
+        except SyntaxError as e:
+            # If syntax error, try a simpler regex-based approach for assignments
             # This is a fallback for code that might have syntax errors
+            self.logger.logger.warning(f"Syntax error extracting variable definitions from code: {e}, using regex fallback")
             extracted_lines = []
             extracted_vars = set()
             
@@ -2420,6 +2784,10 @@ os.makedirs(output_dir, exist_ok=True)
             if extracted_lines:
                 header = f"# Variable definitions extracted from failed execution (required by successful code)"
                 return f"{header}\n{chr(10).join(extracted_lines)}"
+        except Exception as e:
+            # Unexpected errors should be logged
+            self.logger.logger.error(f"Unexpected error extracting variable definitions from code: {e}")
+            return None
         
         return None
 

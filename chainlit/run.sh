@@ -16,6 +16,7 @@
 # 환경 변수 설정 - 웹소켓 타임아웃 증가
 export CHAINLIT_WS_TIMEOUT=7200
 export CHAINLIT_REQUEST_TIMEOUT=7200
+export COST_TRACKING_ENABLED=true
 
 # Chainlit 서버 실행
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,4 +29,4 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # HTTP 모드 (마이크 사용 불가, localhost에서만 마이크 작동)
 # chainlit run "${SCRIPT_DIR}/run.py" -h --host 0.0.0.0 --port 8001
-chainlit run "${SCRIPT_DIR}/run.py" -h --host 0.0.0.0 --port 8004
+chainlit run "${SCRIPT_DIR}/run.py" -h --host 0.0.0.0 --port 8005

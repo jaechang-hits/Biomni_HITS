@@ -5,17 +5,29 @@ System-internal validation to ensure workflow produces identical outputs.
 """
 
 import subprocess
-import tempfile
 import shutil
 import re
-import ast
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set, Union
 import hashlib
 
 
 class WorkflowValidator:
     """Validates that saved workflow produces identical outputs to Agent execution."""
+    
+    # Constants
+    DEFAULT_TIMEOUT = 300  # 5 minutes in seconds
+    RESULT_TRUNCATE_LENGTH = 10000  # Maximum result length to save
+    
+    # Common output file extensions
+    COMMON_OUTPUT_EXTENSIONS = {
+        '.csv', '.tsv', '.xlsx', '.xls', '.json', '.txt', '.tsv.gz',
+        '.png', '.jpg', '.jpeg', '.pdf', '.svg',
+        '.pkl', '.pickle', '.h5', '.hdf5', '.parquet', '.feather'
+    }
+    
+    # Maximum file size for in-memory comparison (100MB)
+    MAX_IN_MEMORY_SIZE = 100 * 1024 * 1024
     
     def __init__(self, work_dir: str):
         """
@@ -124,12 +136,14 @@ class WorkflowValidator:
         
         # Copy input files to execution directory
         copied_input_files = []
+        copied_input_filenames = set()  # Track copied filenames for filtering outputs
         for input_file in input_files:
             src = Path(input_file)
             if src.exists():
                 dst = exec_dir / src.name
                 shutil.copy2(src, dst)
                 copied_input_files.append(str(dst))
+                copied_input_filenames.add(src.name)
         
         # Analyze script to determine argument format
         script_args = self._determine_script_arguments(script_path, copied_input_files, expected_output_files)
@@ -145,20 +159,41 @@ class WorkflowValidator:
                 cwd=str(exec_dir),
                 capture_output=True,
                 text=True,
-                timeout=300  # 5 minute timeout
+                timeout=self.DEFAULT_TIMEOUT
             )
             
             # Collect output files from execution directory
+            # Determine allowed extensions from expected outputs or use common extensions
+            allowed_extensions = self._get_allowed_extensions(expected_output_files)
+            
             output_files = {}
             for file_path in exec_dir.rglob("*"):
-                if file_path.is_file() and file_path.suffix in ['.csv', '.xlsx', '.json', '.txt', '.png', '.jpg', '.jpeg', '.pkl']:
-                    # Skip input files
-                    if file_path.name not in [Path(f).name for f in input_files]:
-                        try:
-                            with open(file_path, 'rb') as f:
-                                output_files[str(file_path)] = f.read()
-                        except Exception:
-                            pass
+                if not file_path.is_file():
+                    continue
+                
+                # Check if file extension is allowed
+                if file_path.suffix.lower() not in allowed_extensions:
+                    continue
+                
+                # Skip input files (use copied_input_filenames for accurate comparison)
+                if file_path.name in copied_input_filenames:
+                    continue
+                
+                try:
+                    # Use hash-based comparison for large files
+                    file_size = file_path.stat().st_size
+                    if file_size > self.MAX_IN_MEMORY_SIZE:
+                        # For large files, store hash instead of full content
+                        file_hash = self._compute_file_hash(file_path)
+                        output_files[str(file_path)] = file_hash
+                    else:
+                        # For smaller files, load into memory
+                        with open(file_path, 'rb') as f:
+                            output_files[str(file_path)] = f.read()
+                except Exception as e:
+                    # Log error but continue processing other files
+                    print(f"Warning: Could not read output file {file_path}: {e}")
+                    continue
             
             return {
                 "success": result.returncode == 0,
@@ -188,26 +223,62 @@ class WorkflowValidator:
     
     def compare_files(self, file1_path: str, file2_path: str) -> bool:
         """
-        Compare two files byte-by-byte.
+        Compare two files using hash-based comparison for large files.
         
         Args:
             file1_path: Path to first file
             file2_path: Path to second file
-        
+            
         Returns:
             True if files are identical, False otherwise
         """
         try:
-            with open(file1_path, 'rb') as f1, open(file2_path, 'rb') as f2:
+            file1 = Path(file1_path)
+            file2 = Path(file2_path)
+            
+            if not file1.exists() or not file2.exists():
+                return False
+            
+            # Check file sizes first (quick check)
+            if file1.stat().st_size != file2.stat().st_size:
+                return False
+            
+            # For large files, use hash comparison
+            if file1.stat().st_size > self.MAX_IN_MEMORY_SIZE:
+                return self._compute_file_hash(file1) == self._compute_file_hash(file2)
+            
+            # For smaller files, use byte-by-byte comparison
+            with open(file1, 'rb') as f1, open(file2, 'rb') as f2:
                 return f1.read() == f2.read()
-        except Exception:
+        except (OSError, IOError) as e:
+            print(f"Error comparing files {file1_path} and {file2_path}: {e}")
+            return False
+        except Exception as e:
+            print(f"Unexpected error comparing files: {e}")
             return False
     
     def compare_outputs(
         self,
-        actual: Dict[str, bytes],
+        actual: Dict[str, Union[bytes, str]],
         expected: Dict[str, bytes]
     ) -> Dict:
+        """
+        Compare actual and expected output files.
+        
+        Supports both bytes and hash (string) values in actual dict for large file handling.
+        
+        Args:
+            actual: Dictionary of actual output files {path: content_bytes or hash_string}
+            expected: Dictionary of expected output files {path: content_bytes}
+            
+        Returns:
+            {
+                "all_match": bool,
+                "file_comparisons": dict,  # {file_path: {"match": bool, "diff": str}}
+                "differences": list,
+                "summary": str
+            }
+        """
         """
         Compare actual and expected output files.
         
@@ -247,19 +318,81 @@ class WorkflowValidator:
                 differences.append(f"Missing file: {expected_filename}")
                 all_match = False
             else:
-                # Compare content byte-by-byte
-                if actual_match == expected_content:
-                    file_comparisons[expected_path] = {
-                        "match": True,
-                        "diff": None
-                    }
+                # Compare content
+                # Handle both bytes and hash (for large files)
+                if isinstance(actual_match, bytes) and isinstance(expected_content, bytes):
+                    # Both are bytes - compare directly
+                    if len(expected_content) > self.MAX_IN_MEMORY_SIZE:
+                        # Expected file is large - use hash comparison
+                        expected_hash = hashlib.sha256(expected_content).hexdigest()
+                        actual_hash = hashlib.sha256(actual_match).hexdigest()
+                        if expected_hash == actual_hash:
+                            file_comparisons[expected_path] = {
+                                "match": True,
+                                "diff": None
+                            }
+                        else:
+                            file_comparisons[expected_path] = {
+                                "match": False,
+                                "diff": "File hash differs (large file comparison)"
+                            }
+                            differences.append(f"File differs: {expected_filename}")
+                            all_match = False
+                    else:
+                        # Both are small - compare directly
+                        if actual_match == expected_content:
+                            file_comparisons[expected_path] = {
+                                "match": True,
+                                "diff": None
+                            }
+                        else:
+                            # Files differ
+                            file_comparisons[expected_path] = {
+                                "match": False,
+                                "diff": self._compute_diff(actual_match, expected_content)
+                            }
+                            differences.append(f"File differs: {expected_filename}")
+                            all_match = False
+                elif isinstance(actual_match, str) and isinstance(expected_content, bytes):
+                    # Actual is hash, expected is bytes - convert expected to hash
+                    if len(expected_content) > self.MAX_IN_MEMORY_SIZE:
+                        expected_hash = hashlib.sha256(expected_content).hexdigest()
+                    else:
+                        expected_hash = hashlib.sha256(expected_content).hexdigest()
+                    
+                    if actual_match == expected_hash:
+                        file_comparisons[expected_path] = {
+                            "match": True,
+                            "diff": None
+                        }
+                    else:
+                        file_comparisons[expected_path] = {
+                            "match": False,
+                            "diff": "File hash differs (large file comparison)"
+                        }
+                        differences.append(f"File differs: {expected_filename}")
+                        all_match = False
+                elif isinstance(actual_match, str) and isinstance(expected_content, str):
+                    # Both are hashes - compare hashes
+                    if actual_match == expected_content:
+                        file_comparisons[expected_path] = {
+                            "match": True,
+                            "diff": None
+                        }
+                    else:
+                        file_comparisons[expected_path] = {
+                            "match": False,
+                            "diff": "File hash differs (large file comparison)"
+                        }
+                        differences.append(f"File differs: {expected_filename}")
+                        all_match = False
                 else:
-                    # Files differ
+                    # Type mismatch - cannot compare
                     file_comparisons[expected_path] = {
                         "match": False,
-                        "diff": self._compute_diff(actual_match, expected_content)
+                        "diff": f"Type mismatch in comparison (actual: {type(actual_match).__name__}, expected: {type(expected_content).__name__})"
                     }
-                    differences.append(f"File differs: {expected_filename}")
+                    differences.append(f"File comparison error: {expected_filename}")
                     all_match = False
         
         # Check for extra files in actual outputs
@@ -285,19 +418,68 @@ class WorkflowValidator:
         Args:
             actual: Actual content
             expected: Expected content
-        
+            
         Returns:
             Description of difference
         """
         if len(actual) != len(expected):
             return f"Size difference: actual={len(actual)} bytes, expected={len(expected)} bytes"
         
-        # Find first differing byte
+        # For large files, just report size difference (detailed comparison is expensive)
+        if len(actual) > self.MAX_IN_MEMORY_SIZE:
+            return f"Large file differs (size: {len(actual)} bytes). Use hash comparison for details."
+        
+        # Find first differing byte (only for smaller files)
         for i, (a, e) in enumerate(zip(actual, expected)):
             if a != e:
                 return f"First difference at byte {i}: actual=0x{a:02x}, expected=0x{e:02x}"
         
         return "Files differ but same size"
+    
+    def _get_allowed_extensions(self, expected_output_files: Optional[Dict[str, bytes]]) -> Set[str]:
+        """
+        Get allowed file extensions from expected outputs or use common extensions.
+        
+        Args:
+            expected_output_files: Optional dict of expected output files
+            
+        Returns:
+            Set of allowed file extensions (lowercase, with dot)
+        """
+        if expected_output_files:
+            # Extract extensions from expected output file paths
+            extensions = set()
+            for output_path in expected_output_files.keys():
+                ext = Path(output_path).suffix.lower()
+                if ext:
+                    extensions.add(ext)
+            # Also include common extensions
+            extensions.update(self.COMMON_OUTPUT_EXTENSIONS)
+            return extensions
+        
+        # Default to common extensions
+        return self.COMMON_OUTPUT_EXTENSIONS
+    
+    def _compute_file_hash(self, file_path: Path) -> str:
+        """
+        Compute SHA256 hash of a file for large file comparison.
+        
+        Args:
+            file_path: Path to file
+            
+        Returns:
+            Hexadecimal hash string
+        """
+        sha256 = hashlib.sha256()
+        try:
+            with open(file_path, 'rb') as f:
+                # Read in chunks to handle large files
+                while chunk := f.read(8192):
+                    sha256.update(chunk)
+            return sha256.hexdigest()
+        except Exception as e:
+            print(f"Error computing hash for {file_path}: {e}")
+            return ""
     
     def _determine_script_arguments(
         self,
@@ -353,9 +535,13 @@ class WorkflowValidator:
                         output_plot_arg = arg
                 
                 # Build command arguments
+                # Support multiple input files
                 if input_arg and input_files:
-                    args.append(f"{input_arg}")
-                    args.append(input_files[0])  # Use first input file
+                    # If multiple input files, check if argument supports multiple values
+                    # For now, pass all input files (some scripts may accept multiple)
+                    for input_file in input_files:
+                        args.append(f"{input_arg}")
+                        args.append(input_file)
                 
                 # Determine output paths from expected outputs
                 if expected_output_files:
@@ -377,30 +563,41 @@ class WorkflowValidator:
                     for common_input_arg in ['--input', '--input_file', '--input_path', '--file']:
                         # Check if this argument exists in the script
                         if common_input_arg in script_content or common_input_arg.replace('--', '') in script_content:
-                            return [common_input_arg, input_files[0]]
-                    # Last resort: use --input
-                    return ['--input', input_files[0]]
+                            # Pass all input files
+                            result = []
+                            for input_file in input_files:
+                                result.extend([common_input_arg, input_file])
+                            return result
+                    # Last resort: use --input with all files
+                    result = []
+                    for input_file in input_files:
+                        result.extend(['--input', input_file])
+                    return result
             
             # If no argparse detected, check for sys.argv usage
             if 'sys.argv' in script_content:
-                # Simple sys.argv: just pass file paths
+                # Simple sys.argv: just pass all file paths
                 return input_files
             
-            # Default: try common argparse patterns
+            # Default: try common argparse patterns with all input files
             if input_files:
-                return ['--input', input_files[0]]
+                result = []
+                for input_file in input_files:
+                    result.extend(['--input', input_file])
+                return result
             
         except Exception as e:
             print(f"Warning: Could not determine script arguments: {e}")
         
-        # Fallback: return input files as positional arguments
-        return input_files
+        # Fallback: return all input files as positional arguments
+        return input_files if input_files else []
     
     def _cleanup_temp_dir(self) -> None:
         """Clean up temporary directory."""
         try:
             if self.temp_dir.exists():
                 shutil.rmtree(self.temp_dir)
-        except Exception:
-            pass  # Ignore cleanup errors
+        except Exception as e:
+            # Cleanup 실패는 치명적이지 않지만 로깅은 필요
+            print(f"Warning: Failed to cleanup temp directory {self.temp_dir}: {e}")
 

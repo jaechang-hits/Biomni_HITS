@@ -11,9 +11,31 @@ from typing import List, Dict, Optional
 from datetime import datetime
 from langchain_core.messages import HumanMessage
 
+from biomni.workflow.utils.code_extractor import CodeExtractor
+
 
 class WorkflowLLMProcessor:
     """Processes execution history using LLM to generate reusable workflow code."""
+    
+    # Pre-compiled regex patterns for performance
+    _IMPORT_LINE_PATTERN = re.compile(r'^(import\s+\S+|from\s+\S+\s+import\s+[^\n]+)', re.MULTILINE)
+    _IMPORT_ALIAS_PATTERN = re.compile(r'import\s+(\S+)\s+as\s+(\w+)')
+    _FROM_IMPORT_PATTERN = re.compile(r'from\s+(\S+)\s+import')
+    _ALIAS_USAGE_PATTERNS = {
+        'pd': re.compile(r'\bpd\.'),
+        'np': re.compile(r'\bnp\.'),
+        'plt': re.compile(r'\bplt\.'),
+        'sns': re.compile(r'\bsns\.'),
+        'stats': re.compile(r'\bstats\.'),
+        'sm': re.compile(r'\bsm\.'),
+        'sklearn': re.compile(r'\bsklearn\.'),
+    }
+    
+    # Constants
+    MAX_RESULT_LENGTH = 500
+    CODE_PREVIEW_LENGTH = 300
+    WORKFLOW_CODE_PREVIEW_LENGTH = 3000
+    PREVIOUS_ATTEMPT_PREVIEW_LENGTH = 2000
     
     def __init__(self, llm):
         """
@@ -23,6 +45,7 @@ class WorkflowLLMProcessor:
             llm: LLM instance to use for processing
         """
         self.llm = llm
+        self.code_extractor = CodeExtractor()
     
     def extract_workflow_code(
         self, 
@@ -38,14 +61,24 @@ class WorkflowLLMProcessor:
         Args:
             execution_history: List of execution entries
             preprocessed_data: Optional preprocessed data from WorkflowPreprocessor
+            missing_outputs: Optional list of missing output files
+            retry_attempt: Retry attempt number
+            previous_attempt_code: Previous attempt code for retry
             
         Returns:
             Structured workflow code as a standalone Python script
         """
+        # Input validation
+        if not isinstance(execution_history, list):
+            return ""
+        
+        if not isinstance(retry_attempt, int) or retry_attempt < 0:
+            retry_attempt = 0
+        
         # Filter to only successful executions
         successful_executions = [
             entry for entry in execution_history
-            if entry.get("success", False)
+            if isinstance(entry, dict) and entry.get("success", False)
         ]
         
         if not successful_executions:
@@ -101,8 +134,26 @@ class WorkflowLLMProcessor:
         Returns:
             Complete standalone Python script
         """
-        # Extract imports from all code blocks
-        all_imports = self._extract_all_imports(code_blocks)
+        # Input validation
+        if not isinstance(code_blocks, list):
+            return ""
+        
+        if not isinstance(metadata, dict):
+            metadata = {}
+        
+        # Extract imports from all code blocks (with validation)
+        import_lists = []
+        for code in code_blocks:
+            if isinstance(code, str) and code.strip():
+                try:
+                    imports = self.code_extractor.extract_imports(code)
+                    if isinstance(imports, list):
+                        import_lists.append(imports)
+                except Exception:
+                    # Skip if extraction fails
+                    continue
+        
+        all_imports = self.code_extractor.merge_imports(import_lists) if import_lists else []
         
         # Generate script header
         header = self._generate_header(metadata, workflow_name)
@@ -135,18 +186,49 @@ class WorkflowLLMProcessor:
         Returns:
             Metadata dictionary
         """
+        # Input validation
+        if not isinstance(execution_history, list):
+            return {
+                "generated_date": datetime.now().isoformat(),
+                "input_formats": [],
+                "output_formats": [],
+                "tools_used": [],
+                "libraries": [],
+                "environment": {
+                    "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+                    "required_packages": [],
+                    "os": sys.platform
+                },
+                "description": "Workflow extracted from 0 execution(s)"
+            }
+        
         # Collect all imports
         all_imports = set()
         input_files = set()
         output_files = set()
         
         for entry in execution_history:
-            code = entry.get("code", "")
-            imports = self._extract_imports_from_code(code)
-            all_imports.update(imports)
+            if not isinstance(entry, dict):
+                continue
             
-            input_files.update(entry.get("input_files", []))
-            output_files.update(entry.get("output_files", []))
+            code = entry.get("code", "")
+            if isinstance(code, str) and code.strip():
+                try:
+                    imports = self.code_extractor.extract_imports(code)
+                    if isinstance(imports, list):
+                        all_imports.update(imports)
+                except Exception:
+                    # Skip if extraction fails
+                    pass
+            
+            # Safely get input/output files
+            input_files_list = entry.get("input_files", [])
+            if isinstance(input_files_list, list):
+                input_files.update(f for f in input_files_list if isinstance(f, str))
+            
+            output_files_list = entry.get("output_files", [])
+            if isinstance(output_files_list, list):
+                output_files.update(f for f in output_files_list if isinstance(f, str))
         
         # Determine input/output formats
         input_formats = self._detect_file_formats(list(input_files))
@@ -176,9 +258,16 @@ class WorkflowLLMProcessor:
         """
         Analyze actual import usage patterns from execution history.
         
+        Args:
+            executions: List of execution dictionaries
+            
         Returns:
             Dict mapping module names to their aliases (e.g., {'pandas': 'pd', 'numpy': 'np'})
         """
+        # Input validation
+        if not isinstance(executions, list):
+            return {}
+        
         import_patterns = {}
         
         # Common import aliases mapping
@@ -200,41 +289,60 @@ class WorkflowLLMProcessor:
         }
         
         for execution in executions:
-            code = execution.get("code", "")
+            if not isinstance(execution, dict):
+                continue
             
-            # Extract import statements
-            import_lines = re.findall(r'^(import\s+\S+|from\s+\S+\s+import\s+[^\n]+)', code, re.MULTILINE)
+            code = execution.get("code", "")
+            if not isinstance(code, str) or not code.strip():
+                continue
+            
+            # Extract import statements using pre-compiled pattern
+            import_lines = self._IMPORT_LINE_PATTERN.findall(code)
             
             for imp_line in import_lines:
                 # Check for alias: import pandas as pd
-                alias_match = re.search(r'import\s+(\S+)\s+as\s+(\w+)', imp_line)
+                alias_match = self._IMPORT_ALIAS_PATTERN.search(imp_line)
                 if alias_match:
                     module = alias_match.group(1)
                     alias = alias_match.group(2)
                     import_patterns[module] = alias
                 else:
                     # Check for from import: from pandas import DataFrame
-                    from_match = re.search(r'from\s+(\S+)\s+import', imp_line)
+                    from_match = self._FROM_IMPORT_PATTERN.search(imp_line)
                     if from_match:
                         module = from_match.group(1)
                         # Check if code uses common alias pattern
                         if module in common_aliases:
                             alias = common_aliases[module]
-                            # Verify alias is actually used in code
-                            if re.search(rf'\b{alias}\.', code):
+                            # Verify alias is actually used in code using pre-compiled pattern
+                            pattern = self._ALIAS_USAGE_PATTERNS.get(alias)
+                            if pattern and pattern.search(code):
                                 import_patterns[module] = alias
             
             # Also check actual usage patterns in code
             for module, expected_alias in common_aliases.items():
                 if module not in import_patterns:
-                    # Check if code uses the alias (e.g., pd.read_csv, np.array)
-                    if re.search(rf'\b{expected_alias}\.', code):
+                    # Check if code uses the alias using pre-compiled pattern
+                    pattern = self._ALIAS_USAGE_PATTERNS.get(expected_alias)
+                    if pattern and pattern.search(code):
                         import_patterns[module] = expected_alias
         
         return import_patterns
     
     def _prepare_execution_summary(self, executions: List[Dict]) -> str:
-        """Prepare execution history summary for LLM."""
+        """
+        Prepare execution history summary for LLM.
+        
+        Args:
+            executions: List of execution dictionaries
+            
+        Returns:
+            Summary string for LLM
+        """
+        # Input validation
+        if not isinstance(executions, list):
+            return ""
+        
         summary_parts = []
         
         # Analyze import usage patterns
@@ -258,22 +366,43 @@ class WorkflowLLMProcessor:
                 all_output_files.add(file_name)
         
         for idx, execution in enumerate(executions, 1):
+            if not isinstance(execution, dict):
+                continue
+            
             code = execution.get("code", "")
+            if not isinstance(code, str):
+                code = ""
+            
             result = execution.get("result", "")
+            if not isinstance(result, str):
+                result = ""
+            
             input_files = execution.get("input_files", [])
+            if not isinstance(input_files, list):
+                input_files = []
+            
             output_files = execution.get("output_files", [])
+            if not isinstance(output_files, list):
+                output_files = []
             
             summary_parts.append(f"=== Execution {idx} ===")
             summary_parts.append(f"Code:\n{code}")
             
             if input_files:
-                summary_parts.append(f"Input files: {', '.join(input_files)}")
+                # Filter to only string file paths
+                valid_input_files = [f for f in input_files if isinstance(f, str)]
+                if valid_input_files:
+                    summary_parts.append(f"Input files: {', '.join(valid_input_files)}")
+            
             if output_files:
-                summary_parts.append(f"Output files: {', '.join(output_files)}")
+                # Filter to only string file paths
+                valid_output_files = [f for f in output_files if isinstance(f, str)]
+                if valid_output_files:
+                    summary_parts.append(f"Output files: {', '.join(valid_output_files)}")
             
             # Include result if it's short
-            if result and len(result) < 500:
-                summary_parts.append(f"Result: {result[:500]}")
+            if result and len(result) < self.MAX_RESULT_LENGTH:
+                summary_parts.append(f"Result: {result[:self.MAX_RESULT_LENGTH]}")
             
             summary_parts.append("")
         
@@ -300,7 +429,21 @@ class WorkflowLLMProcessor:
         Prepare execution summary grouped by output files.
         
         This helps LLM understand which code blocks generate which output files.
+        
+        Args:
+            executions: List of execution dictionaries
+            preprocessed_data: Preprocessed data dictionary
+            
+        Returns:
+            Summary string for LLM
         """
+        # Input validation
+        if not isinstance(executions, list):
+            return ""
+        
+        if not isinstance(preprocessed_data, dict):
+            preprocessed_data = {}
+        
         summary_parts = []
         
         # Analyze import usage patterns
@@ -315,22 +458,35 @@ class WorkflowLLMProcessor:
         
         # Get output file mapping
         output_file_mapping = preprocessed_data.get("output_file_mapping", {})
+        if not isinstance(output_file_mapping, dict):
+            output_file_mapping = {}
         
         # Group executions by output files
         output_file_executions = {}
         for output_file, exec_indices in output_file_mapping.items():
+            if not isinstance(exec_indices, list):
+                continue
+            
             for exec_idx in exec_indices:
-                if 0 < exec_idx <= len(executions):
+                # Validate exec_idx: must be positive and within bounds
+                if not isinstance(exec_idx, int) or exec_idx < 1:
+                    continue
+                
+                if exec_idx <= len(executions):
                     exec_entry = executions[exec_idx - 1]
-                    if output_file not in output_file_executions:
-                        output_file_executions[output_file] = []
-                    output_file_executions[output_file].append((exec_idx, exec_entry))
+                    if isinstance(exec_entry, dict):
+                        if output_file not in output_file_executions:
+                            output_file_executions[output_file] = []
+                        output_file_executions[output_file].append((exec_idx, exec_entry))
         
         # Executions without output files
         executions_with_outputs = set()
         for exec_list in output_file_executions.values():
             for exec_idx, _ in exec_list:
-                executions_with_outputs.add(exec_idx - 1)  # Convert to 0-based index
+                # Convert to 0-based index, ensure it's valid
+                idx_0_based = exec_idx - 1
+                if 0 <= idx_0_based < len(executions):
+                    executions_with_outputs.add(idx_0_based)
         
         # Add output file grouped sections
         if output_file_executions:
@@ -346,19 +502,32 @@ class WorkflowLLMProcessor:
                 summary_parts.append("")
                 
                 for exec_idx, exec_entry in exec_list:
+                    if not isinstance(exec_entry, dict):
+                        continue
+                    
                     code = exec_entry.get("code", "")
+                    if not isinstance(code, str):
+                        code = ""
+                    
                     input_files = exec_entry.get("input_files", [])
+                    if not isinstance(input_files, list):
+                        input_files = []
+                    
                     output_files = exec_entry.get("output_files", [])
+                    if not isinstance(output_files, list):
+                        output_files = []
                     
                     summary_parts.append(f"  === Execution {exec_idx} (generates {output_file}) ===")
                     summary_parts.append(f"  Code:")
-                    # Indent code for readability
+                    # Indent code for readability (optimized: use list comprehension)
                     code_lines = code.split('\n')
-                    for line in code_lines:
-                        summary_parts.append(f"  {line}")
+                    indented_lines = [f"  {line}" for line in code_lines]
+                    summary_parts.extend(indented_lines)
                     
                     if input_files:
-                        summary_parts.append(f"  Input files: {', '.join(input_files)}")
+                        valid_input_files = [f for f in input_files if isinstance(f, str)]
+                        if valid_input_files:
+                            summary_parts.append(f"  Input files: {', '.join(valid_input_files)}")
                     summary_parts.append("")
             
             summary_parts.append("="*80)
@@ -377,7 +546,13 @@ class WorkflowLLMProcessor:
             summary_parts.append("")
             
             for exec_idx, exec_entry in executions_without_outputs:
+                if not isinstance(exec_entry, dict):
+                    continue
+                
                 code = exec_entry.get("code", "")
+                if not isinstance(code, str):
+                    code = ""
+                
                 summary_parts.append(f"=== Execution {exec_idx} ===")
                 summary_parts.append(f"Code:\n{code}")
                 summary_parts.append("")
@@ -520,17 +695,19 @@ Start directly with imports or function definitions. Do not include sentences li
             ])
             
             # Include previous attempt code if available (for comparison)
-            if previous_attempt_code:
+            if previous_attempt_code and isinstance(previous_attempt_code, str):
+                code_preview = previous_attempt_code[:self.PREVIOUS_ATTEMPT_PREVIEW_LENGTH]
+                code_truncated = len(previous_attempt_code) > self.PREVIOUS_ATTEMPT_PREVIEW_LENGTH
                 retry_parts.extend([
                     "=" * 80,
-                    "PREVIOUS ATTEMPT CODE (FOR REFERENCE - DO NOT COPY AS-IS)",
+                    "PREVIOUS ATTEMPT CODE (REFERENCE ONLY - DO NOT COPY AS-IS)",
                     "=" * 80,
                     "The code below was generated in the previous attempt but FAILED to include",
                     "the required output files. Use this as reference to understand what was",
                     "generated, but you MUST add the missing output file generation code.",
                     "",
                     "```python",
-                    previous_attempt_code[:2000] + ("..." if len(previous_attempt_code) > 2000 else ""),
+                    code_preview + ("..." if code_truncated else ""),
                     "```",
                     "",
                     "ANALYSIS:",
@@ -565,13 +742,16 @@ Start directly with imports or function definitions. Do not include sentences li
                 if filtered_executions:
                     code_previews = []
                     for exec_idx in exec_indices:
-                        if 0 < exec_idx <= len(filtered_executions):
+                        # Validate exec_idx: must be positive and within bounds
+                        if isinstance(exec_idx, int) and 0 < exec_idx <= len(filtered_executions):
                             exec_entry = filtered_executions[exec_idx - 1]
-                            code = exec_entry.get("code", "")
-                            # Get first 300 chars of code for better context
-                            code_preview = code[:300].replace('\n', ' ').strip()
-                            if code_preview:
-                                code_previews.append(f"    Execution {exec_idx} code preview: {code_preview}...")
+                            if isinstance(exec_entry, dict):
+                                code = exec_entry.get("code", "")
+                                if isinstance(code, str):
+                                    # Get first N chars of code for better context
+                                    code_preview = code[:self.CODE_PREVIEW_LENGTH].replace('\n', ' ').strip()
+                                    if code_preview:
+                                        code_previews.append(f"    Execution {exec_idx} code preview: {code_preview}...")
                     if code_previews:
                         output_files_section += "\n" + "\n".join(code_previews)
             
@@ -789,11 +969,21 @@ The code must be complete, valid Python that generates ALL required output files
         - Markdown code blocks (```python ... ```)
         - Code blocks without language (``` ... ```)
         - Plain code with surrounding text
+        
+        Args:
+            response: LLM response string
+            
+        Returns:
+            Cleaned Python code string
         """
+        # Input validation
+        if not isinstance(response, str):
+            return ""
+        
         # First, try to extract code from markdown code blocks
         # Pattern: ```python\n...\n``` or ```\n...\n```
-        code_block_pattern = r'```(?:python)?\n(.*?)```'
-        matches = re.findall(code_block_pattern, response, re.DOTALL)
+        code_block_pattern = re.compile(r'```(?:python)?\n(.*?)```', re.DOTALL)
+        matches = code_block_pattern.findall(response)
         
         if matches:
             # Use the longest match (most likely the actual code)
@@ -843,28 +1033,6 @@ The code must be complete, valid Python that generates ALL required output files
         
         return '\n'.join(cleaned_lines).strip()
     
-    def _extract_all_imports(self, code_blocks: List[str]) -> List[str]:
-        """Extract all unique imports from code blocks."""
-        all_imports = set()
-        
-        for code in code_blocks:
-            imports = self._extract_imports_from_code(code)
-            all_imports.update(imports)
-        
-        return sorted(list(all_imports))
-    
-    def _extract_imports_from_code(self, code: str) -> List[str]:
-        """Extract import statements from code."""
-        imports = set()
-        
-        # Pattern for import statements
-        import_pattern = r'^(import\s+\S+|from\s+\S+\s+import\s+[^\n]+)'
-        matches = re.findall(import_pattern, code, re.MULTILINE)
-        
-        for match in matches:
-            imports.add(match.strip())
-        
-        return list(imports)
     
     def _format_imports(self, imports: List[str]) -> str:
         """Format import statements."""
@@ -922,14 +1090,30 @@ Metadata:
         sys.exit(1)'''
     
     def _detect_file_formats(self, file_paths: List[str]) -> List[str]:
-        """Detect file formats from file paths."""
+        """
+        Detect file formats from file paths.
+        
+        Args:
+            file_paths: List of file path strings
+            
+        Returns:
+            List of detected format names
+        """
+        # Input validation
+        if not isinstance(file_paths, list):
+            return []
+        
         formats = set()
         
         for file_path in file_paths:
-            if not file_path:
+            if not isinstance(file_path, str) or not file_path:
                 continue
             
-            ext = file_path.split('.')[-1].upper() if '.' in file_path else None
+            # Extract extension safely
+            if '.' in file_path:
+                ext = file_path.split('.')[-1].upper()
+            else:
+                ext = None
             
             format_map = {
                 'CSV': 'CSV',
@@ -1066,9 +1250,16 @@ This is attempt {attempt_number} of 2. Make sure the fix is complete and correct
         """
         Analyze import usage patterns from code string.
         
+        Args:
+            code: Code string to analyze
+            
         Returns:
             Dict mapping module names to their aliases
         """
+        # Input validation
+        if not isinstance(code, str) or not code.strip():
+            return {}
+        
         import_patterns = {}
         
         # Common alias patterns to check
@@ -1083,8 +1274,9 @@ This is attempt {attempt_number} of 2. Make sure the fix is complete and correct
         }
         
         for alias, module in alias_patterns.items():
-            # Check if alias is used in code (e.g., pd.read_csv, np.array)
-            if re.search(rf'\b{alias}\.', code):
+            # Check if alias is used in code using pre-compiled pattern
+            pattern = self._ALIAS_USAGE_PATTERNS.get(alias)
+            if pattern and pattern.search(code):
                 import_patterns[module] = alias
         
         return import_patterns
@@ -1186,9 +1378,12 @@ This is attempt {attempt_number} of 2. Make sure the fix is complete and correct
         Returns:
             Prompt string
         """
-        # Limit workflow code length for prompt (first 3000 chars should be enough)
-        code_preview = workflow_code[:3000]
-        if len(workflow_code) > 3000:
+        # Limit workflow code length for prompt
+        if not isinstance(workflow_code, str):
+            workflow_code = str(workflow_code) if workflow_code is not None else ""
+        
+        code_preview = workflow_code[:self.WORKFLOW_CODE_PREVIEW_LENGTH]
+        if len(workflow_code) > self.WORKFLOW_CODE_PREVIEW_LENGTH:
             code_preview += "\n... (code continues)"
         
         return f"""You are a bioinformatics analysis documentation expert. Your task is to create 

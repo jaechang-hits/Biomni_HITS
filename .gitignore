@@ -246,6 +246,7 @@ streamlit_workspace
 biomni_data
 streamlit/streamlit_app_v3.py
 workspace/
+workflows/
 
 QA/qa_results/run_2025*
 
