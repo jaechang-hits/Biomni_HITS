@@ -16,6 +16,8 @@ from .utils import (
     get_default_cost_report,
     is_cost_tracking_enabled,
     wrap_llm_with_cost_tracking,
+    get_token_tracker_from_agent,
+    get_token_tracker_from_llm,
 )
 
 __all__ = [
@@ -32,4 +34,6 @@ __all__ = [
     "get_default_cost_report",
     "is_cost_tracking_enabled",
     "wrap_llm_with_cost_tracking",
+    "get_token_tracker_from_agent",
+    "get_token_tracker_from_llm",
 ]

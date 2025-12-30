@@ -953,22 +953,29 @@ async def main(user_message: cl.Message):
             user_session_id = cl.user_session.get("id", f"session_{os.urandom(8).hex()}")
             cl.user_session.set("id", user_session_id)
             
-            # Update token tracker session ID for this user session
+            # Get or create session-specific token tracker
             if isinstance(agent.llm, CostTrackingLLMWrapper):
-                # Instead of creating a new tracker, update the existing tracker's session_id
-                # This preserves the token usage history that may have been accumulated
                 try:
-                    existing_tracker = agent.llm.token_tracker
-                    # Update session_id to match chainlit session
-                    existing_tracker.session_id = f"chainlit_{user_session_id}"
-                    # Update context to a more descriptive name for main agent calls
+                    # Check if we have a tracker for this session
+                    session_tracker = cl.user_session.get("token_tracker")
+                    
+                    # If no tracker exists or session ID changed, create a new one
+                    if session_tracker is None or session_tracker.session_id != f"chainlit_{user_session_id}":
+                        session_tracker = get_default_token_tracker(
+                            session_id=f"chainlit_{user_session_id}",
+                            log_dir=os.path.join(CURRENT_ABS_DIR, "costs", "logs"),
+                        )
+                        cl.user_session.set("token_tracker", session_tracker)
+                        logger.info(f"[COST] Created new token tracker for session: {session_tracker.session_id}")
+                    
+                    # Update agent.llm to use this session's tracker
+                    object.__setattr__(agent.llm, 'token_tracker', session_tracker)
                     object.__setattr__(agent.llm, 'context', 'agent_main')
                     object.__setattr__(agent.llm, 'workflow_id', None)  # Will be set if workflow is saved
-                    logger.info(f"[COST] Token tracker session ID updated: {existing_tracker.session_id}")
-                    logger.info(f"[COST] Context updated to: agent_main")
-                    logger.info(f"[COST] Current history count: {len(existing_tracker.token_usage_history)}")
+                    logger.info(f"[COST] Using token tracker for session: {session_tracker.session_id}")
+                    logger.info(f"[COST] Current history count: {len(session_tracker.token_usage_history)}")
                 except Exception as e2:
-                    logger.error(f"[COST] Failed to update token_tracker session_id: {e2}", exc_info=True)
+                    logger.error(f"[COST] Failed to setup session token tracker: {e2}", exc_info=True)
         except Exception as e:
             logger.warning(f"[COST] Failed to setup session cost tracking: {e}")
     
@@ -1315,16 +1322,12 @@ async def _process_agent_response(agent_input: list, message_history: list):
         # Generate and display cost report if cost tracking is enabled
         if COST_TRACKING_ENABLED and COST_TRACKING_AVAILABLE:
             try:
-                # Get token tracker from wrapped LLM
-                if isinstance(agent.llm, CostTrackingLLMWrapper):
-                    token_tracker = agent.llm.token_tracker
-                    
+                # Get token tracker from user session (session-specific)
+                token_tracker = cl.user_session.get("token_tracker")
+                
+                if token_tracker and isinstance(agent.llm, CostTrackingLLMWrapper):
                     logger.info(f"[COST] Generating cost report for session: {token_tracker.session_id}")
                     logger.info(f"[COST] Token usage history count: {len(token_tracker.token_usage_history)}")
-                    logger.info(f"[COST] Tracker instance ID: {id(token_tracker)}")
-                    if token_tracker.token_usage_history:
-                        logger.info(f"[COST] First usage session_id: {token_tracker.token_usage_history[0].session_id}")
-                        logger.info(f"[COST] First usage model: {token_tracker.token_usage_history[0].model}")
                     
                     # Generate cost report
                     cost_report = get_default_cost_report()
@@ -1367,6 +1370,8 @@ async def _process_agent_response(agent_input: list, message_history: list):
                         logger.info(f"[COST] Cost report displayed: ${cost_data['total_cost']:.4f}")
                     else:
                         logger.info("[COST] No LLM calls tracked in this session")
+                elif not token_tracker:
+                    logger.warning("[COST] No token tracker found in user session")
                 else:
                     logger.warning("[COST] Agent LLM is not wrapped with CostTrackingLLMWrapper")
             except Exception as e:

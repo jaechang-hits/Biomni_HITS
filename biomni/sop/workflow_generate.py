@@ -6,13 +6,25 @@ This module contains methods for generating workflow recommendations from files 
 import os
 import re
 import base64
+import logging
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Any
 
 from pydantic import BaseModel, Field
 from langchain_core.messages import HumanMessage
 
 from biomni.llm import get_llm
+
+# Cost tracking imports (optional)
+try:
+    from biomni.cost import CostTrackingLLMWrapper, get_token_tracker_from_agent
+    COST_TRACKING_AVAILABLE = True
+except ImportError:
+    COST_TRACKING_AVAILABLE = False
+    CostTrackingLLMWrapper = None  # type: ignore
+    get_token_tracker_from_agent = None  # type: ignore
+
+logger = logging.getLogger(__name__)
 
 
 class WorkflowRecommendation(BaseModel):
@@ -363,17 +375,7 @@ class WorkflowGenerator:
             message_content = formatted_prompt
 
         # Try to get token_tracker from agent for cost tracking
-        token_tracker = None
-        try:
-            from biomni.cost import CostTrackingLLMWrapper
-            try:
-                from chainlit.run import agent
-                if isinstance(agent.llm, CostTrackingLLMWrapper):
-                    token_tracker = agent.llm.token_tracker
-            except (ImportError, AttributeError, RuntimeError):
-                pass
-        except ImportError:
-            pass
+        token_tracker = get_token_tracker_from_agent() if get_token_tracker_from_agent is not None else None
         
         # Create LLM instance and structured output
         workflow_llm = get_llm(
@@ -548,17 +550,7 @@ class WorkflowGenerator:
         text = self.extract_text_from_pdf(pdf_path)
 
         # Try to get token_tracker from agent for cost tracking
-        token_tracker = None
-        try:
-            from biomni.cost import CostTrackingLLMWrapper
-            try:
-                from chainlit.run import agent
-                if isinstance(agent.llm, CostTrackingLLMWrapper):
-                    token_tracker = agent.llm.token_tracker
-            except (ImportError, AttributeError, RuntimeError):
-                pass
-        except ImportError:
-            pass
+        token_tracker = get_token_tracker_from_agent() if get_token_tracker_from_agent is not None else None
         
         # Create LLM instance for workflow extraction
         workflow_llm = get_llm(
@@ -664,17 +656,7 @@ class WorkflowGenerator:
             message_content = prompt_text
 
         # Try to get token_tracker from agent for cost tracking
-        token_tracker = None
-        try:
-            from biomni.cost import CostTrackingLLMWrapper
-            try:
-                from chainlit.run import agent
-                if isinstance(agent.llm, CostTrackingLLMWrapper):
-                    token_tracker = agent.llm.token_tracker
-            except (ImportError, AttributeError, RuntimeError):
-                pass
-        except ImportError:
-            pass
+        token_tracker = get_token_tracker_from_agent() if get_token_tracker_from_agent is not None else None
         
         # Create LLM instance and structured output
         workflow_llm = get_llm(

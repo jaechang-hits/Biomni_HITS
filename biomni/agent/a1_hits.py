@@ -13,6 +13,7 @@ import re
 import os
 import time
 import base64
+import logging
 from typing import Literal, TypedDict, List, Dict, Any, Set, Optional
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -53,6 +54,17 @@ from biomni.utils.resource_filter import (
     filter_data_lake_dict,
 )
 from biomni.config import default_config
+
+# Cost tracking imports (optional)
+try:
+    from biomni.cost import CostTrackingLLMWrapper, get_token_tracker_from_llm
+    COST_TRACKING_AVAILABLE = True
+except ImportError:
+    COST_TRACKING_AVAILABLE = False
+    CostTrackingLLMWrapper = None  # type: ignore
+    get_token_tracker_from_llm = None  # type: ignore
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -878,13 +890,9 @@ class WorkflowNodes:
         retriever = self._setup_error_fixing_retriever()
         
         # Try to get token_tracker from agent's main LLM for cost tracking
-        token_tracker = None
-        try:
-            from biomni.cost import CostTrackingLLMWrapper
-            if isinstance(self.llm, CostTrackingLLMWrapper):
-                token_tracker = self.llm.token_tracker
-        except (ImportError, AttributeError):
-            pass
+        token_tracker = get_token_tracker_from_llm(self.agent.llm) if get_token_tracker_from_llm is not None else None
+        if token_tracker is None:
+            logger.debug("No token_tracker available for error_fixing cost tracking")
         
         llm = get_llm(
             model=Config.ERROR_FIXING_LLM_MODEL_ID,
@@ -908,7 +916,8 @@ class WorkflowNodes:
             )
             answer = result["answer"]
         except Exception as e:
-            answer = f"Error fixing retrieval failed: {str(e)}"
+            logger.warning(f"Error fixing retrieval failed: {e}", exc_info=True)
+            answer = "Error fixing retrieval failed. Please try again or check the error logs."
 
         # Update timing and history
         end_time = time.time()
@@ -1592,13 +1601,9 @@ class A1_HITS(A1):
         text_prompt = PromptExtractor.extract_text(prompt)
 
         # Try to get token_tracker from agent's main LLM for cost tracking
-        token_tracker = None
-        try:
-            from biomni.cost import CostTrackingLLMWrapper
-            if isinstance(self.llm, CostTrackingLLMWrapper):
-                token_tracker = self.llm.token_tracker
-        except (ImportError, AttributeError):
-            pass
+        token_tracker = get_token_tracker_from_llm(self.llm) if get_token_tracker_from_llm is not None else None
+        if token_tracker is None:
+            logger.debug("No token_tracker available for tool_retrieval cost tracking")
 
         # Perform retrieval
         tool_llm = get_llm(

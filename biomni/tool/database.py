@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import pickle
 import time
@@ -11,6 +12,21 @@ from Bio.Seq import Seq
 
 from biomni.llm import get_llm
 from biomni.utils import parse_hpo_obo
+
+# Cost tracking imports (optional)
+try:
+    from biomni.cost import CostTrackingLLMWrapper, get_token_tracker_from_agent, is_cost_tracking_enabled
+    COST_TRACKING_AVAILABLE = True
+except ImportError:
+    COST_TRACKING_AVAILABLE = False
+    CostTrackingLLMWrapper = None  # type: ignore
+    get_token_tracker_from_agent = None  # type: ignore
+    is_cost_tracking_enabled = None  # type: ignore
+
+# Cache cost tracking enabled status at module level
+_COST_TRACKING_ENABLED = os.getenv("COST_TRACKING_ENABLED", "false").lower() == "true"
+
+logger = logging.getLogger(__name__)
 
 
 # Function to map HPO terms to names
@@ -135,68 +151,31 @@ def _query_llm_for_api(
             system_prompt = system_template.format(schema=schema_json)
         else:
             system_prompt = system_template
+        
         # Get LLM instance using the unified interface with config
         # Enable cost tracking if available
         try:
             from biomni.config import default_config
-            import os
-            
-            # Check if cost tracking is enabled globally
-            enable_cost_tracking = os.getenv("COST_TRACKING_ENABLED", "false").lower() == "true"
-            
-            # Try to get token_tracker from agent if not provided
-            if token_tracker is None and enable_cost_tracking:
-                try:
-                    # Try to get token_tracker from agent instance (if available)
-                    from biomni.cost import CostTrackingLLMWrapper
-                    # Try direct import (may fail due to circular import, but we catch it)
-                    try:
-                        from chainlit.run import agent
-                        if isinstance(agent.llm, CostTrackingLLMWrapper):
-                            token_tracker = agent.llm.token_tracker
-                    except (ImportError, AttributeError, RuntimeError):
-                        # Circular import or agent not initialized yet - skip
-                        pass
-                except ImportError:
-                    pass
-            
-            llm = get_llm(
-                model=model, 
-                temperature=0.0, 
-                api_key=api_key, 
-                config=default_config,
-                enable_cost_tracking=enable_cost_tracking,
-                cost_tracking_context="database_query",
-                token_tracker=token_tracker
-            )
+            config = default_config
         except ImportError:
-            import os
-            enable_cost_tracking = os.getenv("COST_TRACKING_ENABLED", "false").lower() == "true"
-            
-            # Try to get token_tracker from agent if not provided
-            if token_tracker is None and enable_cost_tracking:
-                try:
-                    # Try to get token_tracker from agent instance (if available)
-                    from biomni.cost import CostTrackingLLMWrapper
-                    # Try direct import (may fail due to circular import, but we catch it)
-                    try:
-                        from chainlit.run import agent
-                        if isinstance(agent.llm, CostTrackingLLMWrapper):
-                            token_tracker = agent.llm.token_tracker
-                    except (ImportError, AttributeError, RuntimeError):
-                        # Circular import or agent not initialized yet - skip
-                        pass
-                except ImportError:
-                    pass
-            
-            llm = get_llm(
-                model=model, 
-                temperature=0.0, 
-                api_key=api_key or "EMPTY",
-                enable_cost_tracking=enable_cost_tracking,
-                cost_tracking_context="database_query",
-                token_tracker=token_tracker
-            )
+            config = None
+        
+        # Try to get token_tracker from agent if not provided
+        if token_tracker is None and _COST_TRACKING_ENABLED:
+            if get_token_tracker_from_agent is not None:
+                token_tracker = get_token_tracker_from_agent()
+            if token_tracker is None:
+                logger.debug("No token_tracker available for database_query cost tracking")
+        
+        llm = get_llm(
+            model=model,
+            temperature=0.0,
+            api_key=api_key,
+            config=config,
+            enable_cost_tracking=_COST_TRACKING_ENABLED,
+            cost_tracking_context="database_query",
+            token_tracker=token_tracker
+        )
         # Compose messages
         messages = [
             SystemMessage(content=system_prompt),
@@ -221,13 +200,15 @@ def _query_llm_for_api(
         return {"success": True, "data": result, "raw_response": llm_text}
 
     except (json.JSONDecodeError, KeyError, IndexError) as e:
+        logger.warning(f"Failed to parse LLM response: {e}", exc_info=True)
         return {
             "success": False,
-            "error": f"Failed to parse LLM response: {str(e)}",
+            "error": "Failed to parse LLM response. Please try again or check the query format.",
             "raw_response": llm_text if "llm_text" in locals() else "No content found",
         }
     except Exception as e:
-        return {"success": False, "error": f"Error querying LLM: {str(e)}"}
+        logger.error(f"Error querying LLM: {e}", exc_info=True)
+        return {"success": False, "error": "Error querying LLM. Please try again or check the logs."}
 
 
 def _query_rest_api(

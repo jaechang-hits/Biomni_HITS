@@ -128,3 +128,73 @@ def wrap_llm_with_cost_tracking(
             workflow_id=workflow_id,
         )
     return llm
+
+
+def get_token_tracker_from_agent() -> Optional[Any]:
+    """
+    Attempt to get token_tracker from the main agent's LLM in chainlit.run.
+    
+    This function safely attempts to access the agent's token_tracker
+    while handling circular import issues gracefully.
+    
+    Returns:
+        TokenTracker instance if available, None otherwise
+        
+    Example:
+        >>> from biomni.cost import get_token_tracker_from_agent
+        >>> tracker = get_token_tracker_from_agent()
+        >>> if tracker:
+        ...     print(f"Found tracker for session: {tracker.session_id}")
+    """
+    if not is_cost_tracking_enabled() or not COST_TRACKING_AVAILABLE or CostTrackingLLMWrapper is None:
+        return None
+    
+    try:
+        # Try to get token_tracker from agent instance (if available)
+        # This may fail due to circular import, but we catch it gracefully
+        try:
+            from chainlit.run import agent
+            if hasattr(agent, 'llm') and isinstance(agent.llm, CostTrackingLLMWrapper):
+                token_tracker = getattr(agent.llm, 'token_tracker', None)
+                if token_tracker is None:
+                    logger.debug("CostTrackingLLMWrapper found but token_tracker is None")
+                return token_tracker
+        except (ImportError, AttributeError, RuntimeError) as e:
+            # Circular import or agent not initialized yet - skip silently
+            logger.debug(f"Could not access agent's token_tracker: {type(e).__name__}")
+    except Exception as e:
+        # Catch any other unexpected errors
+        logger.debug(f"Unexpected error getting token_tracker: {e}")
+    
+    return None
+
+
+def get_token_tracker_from_llm(llm: Any) -> Optional[Any]:
+    """
+    Extract token_tracker from LLM instance if it's wrapped with cost tracking.
+    
+    Args:
+        llm: The LLM instance to check
+        
+    Returns:
+        TokenTracker instance if available, None otherwise
+        
+    Example:
+        >>> from biomni.cost import get_token_tracker_from_llm
+        >>> tracker = get_token_tracker_from_llm(my_llm)
+        >>> if tracker:
+        ...     print(f"Found tracker for session: {tracker.session_id}")
+    """
+    if not COST_TRACKING_AVAILABLE or CostTrackingLLMWrapper is None:
+        return None
+    
+    try:
+        if isinstance(llm, CostTrackingLLMWrapper):
+            token_tracker = getattr(llm, 'token_tracker', None)
+            if token_tracker is None:
+                logger.debug("CostTrackingLLMWrapper found but token_tracker is None")
+            return token_tracker
+    except (AttributeError, TypeError) as e:
+        logger.debug(f"Failed to extract token_tracker from LLM: {e}")
+    
+    return None
