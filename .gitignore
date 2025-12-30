@@ -251,3 +251,9 @@ workflows/
 QA/qa_results/run_2025*
 
 jaechang_test
+
+# Node modules
+web/node_modules/
+
+# Web directory
+web/
