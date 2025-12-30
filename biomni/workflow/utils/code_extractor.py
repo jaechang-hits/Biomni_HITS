@@ -6,12 +6,131 @@ Extracts and analyzes code structure using AST parsing.
 
 import ast
 import re
+import sys
+import importlib.util
 from typing import List, Dict, Set, Optional
 from pathlib import Path
 
 
 class CodeExtractor:
     """Extracts code structure and components using AST parsing."""
+    
+    # Standard library modules (using sys.stdlib_module_names if available)
+    if sys.version_info >= (3, 10):
+        _STDLIB_MODULES = set(sys.stdlib_module_names)
+    else:
+        _STDLIB_MODULES = {
+            'os', 'sys', 'json', 'csv', 'datetime', 'pathlib', 're',
+            'collections', 'itertools', 'functools', 'argparse', 'ast',
+            'hashlib', 'logging', 'subprocess', 'tempfile', 'shutil',
+            'urllib', 'http', 'socket', 'threading', 'multiprocessing',
+            'pickle', 'sqlite3', 'xml', 'html', 'email', 'base64', 'zlib',
+            'time', 'warnings', 'io', 'glob', 'math', 'random', 'string'
+        }
+    
+    def _is_package_available(self, module_name: str) -> bool:
+        """
+        Check if a Python package/module is available in the current environment.
+        
+        Args:
+            module_name: Name of the module to check (e.g., 'pandas', 'numpy', 'mygene')
+            
+        Returns:
+            True if package is available, False otherwise
+        """
+        # Check if it's a standard library module
+        if module_name in self._STDLIB_MODULES:
+            return True
+        
+        # Check if it's a built-in module
+        if module_name in sys.builtin_module_names:
+            return True
+        
+        # Try to find the module spec
+        try:
+            spec = importlib.util.find_spec(module_name)
+            if spec is None:
+                return False
+            
+            # Additional check: try to actually import it to ensure it's usable
+            # This catches cases where the module exists but has import errors
+            try:
+                __import__(module_name)
+                return True
+            except (ImportError, ModuleNotFoundError, AttributeError):
+                return False
+        except (ImportError, ValueError, AttributeError, Exception):
+            return False
+    
+    def _extract_module_name_from_import(self, import_stmt: str) -> str:
+        """
+        Extract module name from import statement.
+        
+        Args:
+            import_stmt: Import statement (e.g., 'import pandas as pd', 'from scipy import stats')
+            
+        Returns:
+            Module name (e.g., 'pandas', 'scipy')
+        """
+        import_stmt = import_stmt.strip()
+        
+        if import_stmt.startswith('import '):
+            # import module_name [as alias]
+            module = import_stmt.replace('import ', '').split(' as ')[0].strip()
+            # Get base module name (first part before dot)
+            return module.split('.')[0]
+        elif import_stmt.startswith('from '):
+            # from module_name import ...
+            parts = import_stmt.replace('from ', '').split(' import ')
+            if len(parts) >= 1:
+                module = parts[0].strip()
+                # Get base module name (first part before dot)
+                return module.split('.')[0]
+        
+        return ""
+    
+    def filter_available_imports(self, imports: List[str]) -> List[str]:
+        """
+        Filter import statements to only include packages available in the current environment.
+        
+        Args:
+            imports: List of import statements
+            
+        Returns:
+            Filtered list of import statements (only available packages)
+        """
+        if not isinstance(imports, list):
+            return []
+        
+        available_imports = []
+        unavailable_modules = set()
+        
+        for import_stmt in imports:
+            if not isinstance(import_stmt, str):
+                continue
+            
+            module_name = self._extract_module_name_from_import(import_stmt)
+            
+            if not module_name:
+                # Could not parse, include it (safer to include than exclude)
+                available_imports.append(import_stmt)
+                continue
+            
+            # Check if module is available
+            if self._is_package_available(module_name):
+                available_imports.append(import_stmt)
+            else:
+                unavailable_modules.add(module_name)
+        
+        # Log unavailable modules if any
+        if unavailable_modules:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Filtered out {len(unavailable_modules)} unavailable package(s): {sorted(unavailable_modules)}"
+            )
+        
+        return available_imports
     
     def extract_functions(self, code: str) -> List[Dict]:
         """
@@ -43,15 +162,16 @@ class CodeExtractor:
         
         return functions
     
-    def extract_imports(self, code: str) -> List[str]:
+    def extract_imports(self, code: str, filter_unavailable: bool = True) -> List[str]:
         """
         Extract and deduplicate import statements.
         
         Args:
             code: Code string to analyze
+            filter_unavailable: If True, filter out packages not available in current environment
             
         Returns:
-            List of unique import statements
+            List of unique import statements (filtered if filter_unavailable=True)
         """
         imports = set()
         
@@ -86,7 +206,13 @@ class CodeExtractor:
             matches = re.findall(import_pattern, code, re.MULTILINE)
             imports.update(matches)
         
-        return sorted(list(imports))
+        imports_list = sorted(list(imports))
+        
+        # Filter out unavailable packages if requested
+        if filter_unavailable:
+            imports_list = self.filter_available_imports(imports_list)
+        
+        return imports_list
     
     def identify_hardcoded_paths(self, code: str) -> List[Dict]:
         """

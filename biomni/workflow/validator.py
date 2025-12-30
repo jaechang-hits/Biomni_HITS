@@ -7,6 +7,8 @@ System-internal validation to ensure workflow produces identical outputs.
 import subprocess
 import shutil
 import re
+import os
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Union
 import hashlib
@@ -152,11 +154,46 @@ class WorkflowValidator:
         script_path_resolved = Path(script_path).resolve()
         cmd = ["python", str(script_path_resolved)] + script_args
         
+        # Prepare environment with PYTHONPATH to ensure biomni module can be imported
+        # Get the workspace root (parent of biomni package)
+        # Try to find biomni module location
+        env = os.environ.copy()
+        workspace_root = None
+        
+        # Method 1: Try to import biomni and get its path
         try:
-            # Run script
+            import biomni
+            biomni_path = Path(biomni.__file__).parent.parent
+            workspace_root = str(biomni_path.resolve())
+        except ImportError:
+            # Method 2: Infer from work_dir (usually work_dir is parent of workflows)
+            # e.g., /workdir_efs/jhjeon/Biomni/workflows -> /workdir_efs/jhjeon/Biomni
+            work_dir_path = Path(self.work_dir).resolve()
+            # Check if biomni exists in work_dir or its parent
+            if (work_dir_path / "biomni").exists():
+                workspace_root = str(work_dir_path)
+            elif (work_dir_path.parent / "biomni").exists():
+                workspace_root = str(work_dir_path.parent)
+            else:
+                # Method 3: Use current working directory if biomni exists there
+                cwd = Path.cwd()
+                if (cwd / "biomni").exists():
+                    workspace_root = str(cwd)
+        
+        # Add workspace root to PYTHONPATH if found
+        if workspace_root:
+            current_pythonpath = env.get("PYTHONPATH", "")
+            if current_pythonpath:
+                env["PYTHONPATH"] = f"{workspace_root}:{current_pythonpath}"
+            else:
+                env["PYTHONPATH"] = workspace_root
+        
+        try:
+            # Run script with environment that includes PYTHONPATH
             result = subprocess.run(
                 cmd,
                 cwd=str(exec_dir),
+                env=env,
                 capture_output=True,
                 text=True,
                 timeout=self.DEFAULT_TIMEOUT
