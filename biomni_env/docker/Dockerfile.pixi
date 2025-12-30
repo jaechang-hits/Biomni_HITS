@@ -33,6 +33,10 @@ ENV OMP_NUM_THREADS=1
 ENV PIXI_HOME=/opt/pixi
 ENV PATH="${PIXI_HOME}/bin:$PATH"
 
+# HTTP2 관련 연결 에러 방지 (conda-forge 다운로드 안정성 향상)
+ENV ASYNC_HTTP_CLIENT_BACKEND=curl
+ENV RATTLER_AUTH_FILE=/dev/null
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \

@@ -1,8 +1,8 @@
 [workspace]
-authors = ["jaechang <jaechang@hits.ai>"]
+authors = ["jaechang-hits <jaechang@hits.ai>"]
 channels = ["conda-forge", "bioconda", "main", "r", "msys2"]
 name = "hits_omics"
-platforms = ["osx-arm64", "linux-64", "linux-aarch64"]
+platforms = ["linux-64"]
 version = "0.1.0"
 
 [tasks]
@@ -103,7 +103,6 @@ markdown = "*"
 openpyxl = "*"
 
 [pypi-dependencies]
-biomni = { path = ".", editable = true }
 pyscenic = "*"
 ddgs = "*"
 pylint = "*"
