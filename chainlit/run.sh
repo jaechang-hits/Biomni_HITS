@@ -13,10 +13,23 @@
 # 해당 서버의 타임아웃 설정도 확인해야 할 수 있습니다.
 # Nginx 예시: proxy_read_timeout 7200;
 
-# 환경 변수 설정 - 웹소켓 타임아웃 증가
+# 환경 변수 설정
+# 웹소켓 타임아웃 증가
 export CHAINLIT_WS_TIMEOUT=7200
 export CHAINLIT_REQUEST_TIMEOUT=7200
+
+# 비용 추적 기능 (Cost Tracking)
+# LLM API 호출 비용을 추적하고 리포트를 생성합니다.
+# 값: true/false (기본값: false)
+# 활성화 시: 각 세션의 LLM 호출 비용을 추적하고 리포트를 표시합니다.
 export COST_TRACKING_ENABLED=true
+
+# 워크플로우 자동 저장 기능 (Workflow Saving)
+# Agent 실행 후 분석 워크플로우를 자동으로 Jupyter notebook(.ipynb) 파일로 저장합니다.
+# 값: true/false (기본값: false)
+# 활성화 시: 실행된 코드 블록들을 순서대로 정리하여 재사용 가능한 워크플로우로 저장합니다.
+# 저장 위치: {work_dir}/workflows/workflows/workflow_*.ipynb
+export BIOMNI_WORKFLOW_SAVING_ENABLED=true
 
 # Chainlit 서버 실행
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

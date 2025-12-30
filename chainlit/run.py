@@ -1380,41 +1380,47 @@ async def _process_agent_response(agent_input: list, message_history: list):
                 logger.error(f"[COST] Traceback: {traceback.format_exc()}")
 
         # Save workflow after agent execution completes using WorkflowService (independent approach)
-        try:
-            from biomni.workflow import WorkflowService
-            from pathlib import Path
-            
-            execution_history = agent.workflow_tracker.get_execution_history()
-            if execution_history:
-                logger.info(f"[WORKFLOW] Saving workflow... (Found {len(execution_history)} execution(s))")
+        # Check if workflow saving is enabled (default: False)
+        workflow_saving_enabled = os.getenv("BIOMNI_WORKFLOW_SAVING_ENABLED", "false").lower() in ("true", "1", "yes")
+        
+        if workflow_saving_enabled:
+            try:
+                from biomni.workflow import WorkflowService
+                from pathlib import Path
                 
-                # Determine workflows directory from execute_blocks_dir
-                if agent.workflow_tracker.execute_blocks_dir:
-                    workflows_root = agent.workflow_tracker.execute_blocks_dir.parent
-                    workflows_dir = workflows_root / "workflows"
-                else:
-                    # Fallback: use BIOMNI_DATA_PATH
-                    workflows_dir = Path(BIOMNI_DATA_PATH).parent / "workflows" / "workflows"
-                
-                # Use WorkflowService for independent workflow saving
-                workflow_path = WorkflowService.save_workflow_from_tracker(
-                    tracker=agent.workflow_tracker,
-                    workflows_dir=str(workflows_dir),
-                    llm=agent.llm,
-                    workflow_name=None,
-                    max_fix_attempts=2
-                )
-                
-                if workflow_path:
-                    logger.info(f"[WORKFLOW] ✅ Workflow saved to: {workflow_path}")
-                    # Optionally notify user in chat
-                    await cl.Message(
-                        content=f"💾 **워크플로우 저장 완료**\n\n워크플로우가 저장되었습니다:\n`{workflow_path}`"
-                    ).send()
-                else:
-                    logger.info("[WORKFLOW] ℹ️  No workflow to save (filtered out or no data processing code)")
-        except Exception as e:
-            logger.error(f"[WORKFLOW] Failed to save workflow: {e}", exc_info=True)
+                execution_history = agent.workflow_tracker.get_execution_history()
+                if execution_history:
+                    logger.info(f"[WORKFLOW] Saving workflow... (Found {len(execution_history)} execution(s))")
+                    
+                    # Determine workflows directory from execute_blocks_dir
+                    if agent.workflow_tracker.execute_blocks_dir:
+                        workflows_root = agent.workflow_tracker.execute_blocks_dir.parent
+                        workflows_dir = workflows_root / "workflows"
+                    else:
+                        # Fallback: use BIOMNI_DATA_PATH
+                        workflows_dir = Path(BIOMNI_DATA_PATH).parent / "workflows" / "workflows"
+                    
+                    # Use WorkflowService for independent workflow saving
+                    workflow_path = WorkflowService.save_workflow_from_tracker(
+                        tracker=agent.workflow_tracker,
+                        workflows_dir=str(workflows_dir),
+                        llm=agent.llm,
+                        workflow_name=None,
+                        max_fix_attempts=2
+                    )
+                    
+                    if workflow_path:
+                        logger.info(f"[WORKFLOW] ✅ Workflow saved to: {workflow_path}")
+                        # Optionally notify user in chat
+                        await cl.Message(
+                            content=f"💾 **워크플로우 저장 완료**\n\n워크플로우가 저장되었습니다:\n`{workflow_path}`"
+                        ).send()
+                    else:
+                        logger.info("[WORKFLOW] ℹ️  No workflow to save (filtered out or no data processing code)")
+            except Exception as e:
+                logger.error(f"[WORKFLOW] Failed to save workflow: {e}", exc_info=True)
+        else:
+            logger.debug("[WORKFLOW] Workflow saving is disabled (set BIOMNI_WORKFLOW_SAVING_ENABLED=true to enable)")
 
     except asyncio.CancelledError:
         # Handle stop button click

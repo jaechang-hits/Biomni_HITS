@@ -27,6 +27,22 @@ OmicsHorizon™ is an integrated platform designed to streamline your omics rese
 2. **Ask Questions**: Describe what analysis you'd like to perform
 3. **Get Results**: Receive comprehensive analysis results with visualizations and interpretations
 
+## Configuration ⚙️
+
+### Cost Tracking
+- **Environment Variable**: `COST_TRACKING_ENABLED`
+- **Default**: `false`
+- **Description**: Tracks LLM API call costs and generates cost reports for each session
+- **Enable**: Set `COST_TRACKING_ENABLED=true` in `chainlit/run.sh` or environment
+
+### Workflow Saving
+- **Environment Variable**: `BIOMNI_WORKFLOW_SAVING_ENABLED`
+- **Default**: `false`
+- **Description**: Automatically saves executed analysis workflows as Jupyter notebook (`.ipynb`) files after agent execution
+- **Enable**: Set `BIOMNI_WORKFLOW_SAVING_ENABLED=true` in `chainlit/run.sh` or environment
+- **Output Location**: `{work_dir}/workflows/workflows/workflow_*.ipynb`
+- **Note**: Saved notebooks can be executed both in Jupyter and via command-line with `jupyter nbconvert --execute`
+
 ## Supported Data Types 📊
 
 - Gene expression data (RNA-seq, microarray)

@@ -1472,19 +1472,23 @@ class A1_HITS(A1):
     def __del__(self):
         """Auto-save workflow on session end."""
         if hasattr(self, 'workflow_tracker'):
-            try:
-                # Check if there are any executions to save
-                execution_history = self.workflow_tracker.get_execution_history()
-                if execution_history:
-                    print(f"💾 Auto-saving workflow on session end... (Found {len(execution_history)} execution(s))")
-                    # Use save_workflow_now which uses WorkflowService
-                    workflow_path = self.save_workflow_now()
-                    
-                    if workflow_path:
-                        print(f"✅ Workflow auto-saved to: {workflow_path}")
-            except Exception as e:
-                # Silently fail to avoid issues during cleanup
-                print(f"Error auto-saving workflow: {e}")
+            # Check if workflow saving is enabled (default: False)
+            workflow_saving_enabled = os.getenv("BIOMNI_WORKFLOW_SAVING_ENABLED", "false").lower() in ("true", "1", "yes")
+            
+            if workflow_saving_enabled:
+                try:
+                    # Check if there are any executions to save
+                    execution_history = self.workflow_tracker.get_execution_history()
+                    if execution_history:
+                        print(f"💾 Auto-saving workflow on session end... (Found {len(execution_history)} execution(s))")
+                        # Use save_workflow_now which uses WorkflowService
+                        workflow_path = self.save_workflow_now()
+                        
+                        if workflow_path:
+                            print(f"✅ Workflow auto-saved to: {workflow_path}")
+                except Exception as e:
+                    # Silently fail to avoid issues during cleanup
+                    print(f"Error auto-saving workflow: {e}")
 
     def go(self, prompt, additional_system_prompt=None):
         """
