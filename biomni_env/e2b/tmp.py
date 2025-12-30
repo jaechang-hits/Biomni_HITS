@@ -5,7 +5,7 @@ os.environ["E2B_API_KEY"] = "e2b_f308d8e737cc8ae69cd41343bd3d2fca2639ea22"
 
 
 template = Template().from_image(
-    image="jaechang917/biomni_hits:latest",
+    image="public.ecr.aws/k4o7y1i6/jaechang-test:latest",
     # username="user",
     # password="pass",
 )

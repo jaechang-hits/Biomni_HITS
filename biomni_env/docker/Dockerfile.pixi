@@ -34,7 +34,7 @@ ENV PIXI_HOME=/opt/pixi
 ENV PATH="${PIXI_HOME}/bin:$PATH"
 
 # HTTP2 관련 연결 에러 방지 (동시 다운로드 수 제한으로 연결 안정성 향상)
-ENV PIXI_CONCURRENT_DOWNLOADS=4
+ENV PIXI_CONCURRENT_DOWNLOADS=20
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
