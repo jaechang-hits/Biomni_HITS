@@ -1033,6 +1033,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/91/26/8c4a9191c2d31c4f30aecd4382bcc209b67629b827955fb164ce03c09e08/arboreto-0.1.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/93/ac/a85b4bfb4cf53221513e27f33cc37ad158fce02ac291d18bee6b49ab477d/astroid-4.0.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/54/51/321e821856452f7386c4e9df866f196720b1ad0c5ea1623ea7399969ae3b/authlib-1.6.6-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/dc/6d/130477cfbd7294949b919c45cc1ed14a642cec95afba06a54400a4419235/biothings_client-0.4.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/45/7f/0e961cf3908bc4c1c3e027de2794f867c6c89fb4916fc7dba295a0e80a2d/boltons-25.0.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f3/cf/e24d08b37cd318754a8e94906c8b34b88676899aad1907ff6942311f13c4/boto3-1.40.70-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9d/2a/9186535ce58db529927f6cf5990a849aa9e052eea3e2cfefe20b9e1802da/bracex-2.6-py3-none-any.whl
@@ -1076,6 +1077,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/19/67/1720b01e58d3487a44c780a86aabad95d9eaaf6b2fa8d0718c98f0eca18d/langsmith-0.5.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/27/1a/1f68f9ba0c207934b35b86a8ca3aad8395a3d6dd7921c0686e23853ff5a9/mccabe-0.7.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/86/4d/4b135e2e5cd0194eb29f2ed36e9a77a07596787a9a8ac2279bd4445398f2/multiprocessing_on_dill-3.5.0a4.tar.gz
+      - pypi: https://files.pythonhosted.org/packages/a7/b7/132b1673c0ec00881d49d56c09624942fa0ebd2fc21d73d80647efa082e9/mygene-3.2.2-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d9/43/560e9ba23c02c904b5934496486d061bcb14cd3ebba2e3cf0e2dccb6c22b/numexpr-2.14.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/12/cf/03675d8bd8ecbf4445504d8071adab19f5f993676795708e36402ab38263/openapi_pydantic-0.5.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/52/18/8215ef740dd5b5d982de9c4cd352c99ce92c40c208245a2e8909bea7c0d6/optlang-1.8.3-py2.py3-none-any.whl
@@ -2572,6 +2574,20 @@ packages:
   - pkg:pypi/biopython?source=hash-mapping
   size: 3300076
   timestamp: 1761734817985
+- pypi: https://files.pythonhosted.org/packages/dc/6d/130477cfbd7294949b919c45cc1ed14a642cec95afba06a54400a4419235/biothings_client-0.4.1-py3-none-any.whl
+  name: biothings-client
+  version: 0.4.1
+  sha256: 9cbc17461b2bf6af6ed200929b886d6670d450af2034b428cd833f725695265a
+  requires_dist:
+  - httpx>=0.22.0
+  - importlib-metadata ; python_full_version < '3.8'
+  - anysqlite ; python_full_version >= '3.8' and extra == 'caching'
+  - hishel[sqlite] ; python_full_version >= '3.8' and extra == 'caching'
+  - pandas>=1.1.5 ; extra == 'dataframe'
+  - pyld>=0.7.2 ; extra == 'jsonld'
+  - pytest>=7.0.1 ; extra == 'tests'
+  - pytest-asyncio>=0.16.0 ; extra == 'tests'
+  requires_python: '>=3.6'
 - conda: https://conda.anaconda.org/bioconda/linux-64/blast-2.17.0-h66d330f_0.conda
   sha256: 53a319c984d8aafcf7f2d7d4c21ad2590e1bacd674443e09d79ac19694ccf99a
   md5: 405ce6d52eba06fcd48197ae1eb8f5a9
@@ -8280,6 +8296,12 @@ packages:
   - pkg:pypi/munkres?source=hash-mapping
   size: 15851
   timestamp: 1749895533014
+- pypi: https://files.pythonhosted.org/packages/a7/b7/132b1673c0ec00881d49d56c09624942fa0ebd2fc21d73d80647efa082e9/mygene-3.2.2-py2.py3-none-any.whl
+  name: mygene
+  version: 3.2.2
+  sha256: 18d85d1b28ecee2be31d844607fb0c5f7d7c58573278432df819ee2a5e88fe46
+  requires_dist:
+  - biothings-client>=0.2.6
 - conda: https://conda.anaconda.org/conda-forge/noarch/mypy_extensions-1.1.0-pyha770c72_0.conda
   sha256: 6ed158e4e5dd8f6a10ad9e525631e35cee8557718f83de7a4e3966b1f772c4b1
   md5: e9c622e0d00fa24a6292279af3ab6d06

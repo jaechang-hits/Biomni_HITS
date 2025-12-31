@@ -13,6 +13,7 @@ import seaborn as sns
 from typing import Optional, List, Union, Dict
 from scipy import stats
 
+
 def convert_gene_ids(
     gene_ids: list,
     from_type: str,
@@ -21,10 +22,10 @@ def convert_gene_ids(
 ) -> dict:
     """
     Convert between different gene ID formats.
-    
+
     Essential for integrating data from different sources that use different
     gene identifier systems (Ensembl, Entrez, Gene Symbol, RefSeq, etc.).
-    
+
     Parameters
     ----------
     gene_ids : list
@@ -42,13 +43,13 @@ def convert_gene_ids(
         - "human": Homo sapiens
         - "mouse": Mus musculus
         - "rat": Rattus norvegicus
-    
+
     Returns
     -------
     dict
         Dictionary mapping input IDs to converted IDs.
         Format: {input_id: converted_id or None if not found}
-        
+
     Examples
     --------
     >>> # Convert Ensembl IDs to gene symbols
@@ -56,140 +57,140 @@ def convert_gene_ids(
     >>> result = convert_gene_ids(ensembl_ids, "ensembl", "symbol")
     >>> print(result)
     {'ENSG00000141510': 'TP53', 'ENSG00000157764': 'BRAF'}
-    
+
     >>> # Convert gene symbols to Entrez IDs
     >>> symbols = ["TP53", "BRCA1", "EGFR"]
     >>> result = convert_gene_ids(symbols, "symbol", "entrez")
     >>> print(result)
     {'TP53': '7157', 'BRCA1': '672', 'EGFR': '1956'}
-    
+
     >>> # Convert for mouse genes
     >>> mouse_symbols = ["Tp53", "Brca1"]
     >>> result = convert_gene_ids(mouse_symbols, "symbol", "ensembl", organism="mouse")
-    
+
     Notes
     -----
-    - Uses gget library for gene ID conversion via Ensembl database
-    - Supported conversions:
-      * Ensembl <-> Symbol: Fully supported
-      * Ensembl <-> Entrez: Fully supported
-      * Symbol <-> Entrez: Supported (via Ensembl as intermediate)
-      * Symbol <-> Ensembl: Supported
-      * Entrez -> Symbol/Ensembl: Limited support (may fail if exact match not found)
-      * RefSeq conversions: Limited support
-    - gget.info() only accepts Ensembl IDs directly
-    - For non-Ensembl input types, gget.search() is used first to find Ensembl ID
+    - Uses mygene library for efficient batch gene ID conversion
+    - All conversions are fully supported via MyGene.info API
+    - Single batch API call for all genes (very fast even for large lists)
     - Some IDs may not have direct mappings and will return None
     - Case-sensitive for gene symbols in most databases
-    - For large lists (>1000 genes), consider batching
     - Requires internet connection for database queries
     - For Ensembl IDs, version suffix (e.g., .20) is automatically removed
     """
-    import gget
-    
+    import mygene
+
     # Validate inputs
     valid_types = ["ensembl", "entrez", "symbol", "refseq"]
     if from_type not in valid_types:
         raise ValueError(f"from_type must be one of {valid_types}, got '{from_type}'")
     if to_type not in valid_types:
         raise ValueError(f"to_type must be one of {valid_types}, got '{to_type}'")
-    
-    # Map organism names to gget species codes
-    organism_map = {
-        "human": "homo_sapiens",
-        "mouse": "mus_musculus",
-        "rat": "rattus_norvegicus",
+
+    # Map organism names to mygene species codes
+    valid_organisms = ["human", "mouse", "rat"]
+    if organism.lower() not in valid_organisms:
+        raise ValueError(f"organism must be one of {valid_organisms}, got '{organism}'")
+
+    species = organism.lower()
+
+    # Map ID types to mygene scopes and fields
+    type_to_scope = {
+        "ensembl": "ensembl.gene",
+        "entrez": "entrezgene",
+        "symbol": "symbol",
+        "refseq": "refseq",
     }
-    
-    if organism.lower() not in organism_map:
-        raise ValueError(f"organism must be one of {list(organism_map.keys())}, got '{organism}'")
-    
-    species = organism_map[organism.lower()]
-    
-    # Initialize result dictionary
-    result = {}
-    
-    # Convert each gene ID
+
+    type_to_field = {
+        "ensembl": "ensembl.gene",
+        "entrez": "entrezgene",
+        "symbol": "symbol",
+        "refseq": "refseq",
+    }
+
+    scopes = type_to_scope[from_type]
+    fields = type_to_field[to_type]
+
+    # Preprocess input: remove Ensembl version suffix if present
+    gene_ids_clean = []
+    original_to_clean = {}
     for gene_id in gene_ids:
-        try:
-            # Step 1: If from_type is not Ensembl, first convert to Ensembl ID
-            if from_type != "ensembl":
-                # Use gget.search() to find Ensembl ID
-                if from_type == "symbol":
-                    search_result = gget.search(gene_id, species, id_type='gene', verbose=False)
-                elif from_type == "entrez":
-                    # For Entrez ID, search might not work directly - try to use as Ensembl-like
-                    # Actually, Entrez IDs need special handling - gget might not support direct search
-                    search_result = None
-                elif from_type == "refseq":
-                    # RefSeq IDs also need special handling
-                    search_result = None
+        if from_type == "ensembl" and "." in str(gene_id):
+            clean_id = str(gene_id).split(".")[0]
+        else:
+            clean_id = str(gene_id)
+        gene_ids_clean.append(clean_id)
+        original_to_clean[gene_id] = clean_id
+
+    # Initialize result dictionary with None values
+    result = {gene_id: None for gene_id in gene_ids}
+
+    # Batch query using mygene
+    mg = mygene.MyGeneInfo()
+
+    try:
+        query_results = mg.querymany(
+            gene_ids_clean,
+            scopes=scopes,
+            fields=fields,
+            species=species,
+            returnall=True,
+            verbose=False,
+        )
+    except Exception:
+        return result
+
+    # Process results
+    # query_results['out'] contains the matched results
+    if "out" not in query_results:
+        return result
+
+    # Build a mapping from clean query ID to target value
+    clean_to_target = {}
+    for item in query_results["out"]:
+        query_id = item.get("query")
+        if query_id is None or item.get("notfound", False):
+            continue
+
+        # Extract target field value
+        if to_type == "ensembl":
+            ensembl_data = item.get("ensembl", None)
+            if ensembl_data:
+                # ensembl can be a dict or a list of dicts
+                if isinstance(ensembl_data, list):
+                    target_value = ensembl_data[0].get("gene", None)
                 else:
-                    search_result = None
-                
-                # Extract Ensembl ID from search result
-                if search_result is not None and len(search_result) > 0:
-                    # Find exact match if possible
-                    exact_match = search_result[search_result['gene_name'] == gene_id]
-                    if len(exact_match) > 0:
-                        ensembl_id = exact_match.iloc[0]['ensembl_id']
+                    target_value = ensembl_data.get("gene", None)
+                if target_value:
+                    clean_to_target[query_id] = str(target_value).split(".")[0]
+        elif to_type == "entrez":
+            entrez_id = item.get("entrezgene", None)
+            if entrez_id:
+                clean_to_target[query_id] = str(int(entrez_id))
+        elif to_type == "symbol":
+            symbol = item.get("symbol", None)
+            if symbol:
+                clean_to_target[query_id] = symbol
+        elif to_type == "refseq":
+            refseq_data = item.get("refseq", None)
+            if refseq_data:
+                # refseq can have 'rna' field with transcript IDs
+                rna_ids = refseq_data.get("rna", None)
+                if rna_ids:
+                    if isinstance(rna_ids, list):
+                        clean_to_target[query_id] = rna_ids[0]
                     else:
-                        # Use first result if no exact match
-                        ensembl_id = search_result.iloc[0]['ensembl_id']
-                else:
-                    # If search fails, try direct info lookup (might work for some formats)
-                    ensembl_id = None
-                    gene_info = gget.info(gene_id, verbose=False)
-                    if gene_info is not None and len(gene_info) > 0:
-                        ensembl_id = gene_info.iloc[0].get("ensembl_id", None)
-                        if ensembl_id:
-                            ensembl_id = ensembl_id.split(".")[0] if "." in str(ensembl_id) else ensembl_id
-                
-                if not ensembl_id:
-                    result[gene_id] = None
-                    continue
-            else:
-                # Already Ensembl ID, use directly
-                ensembl_id = gene_id.split(".")[0] if "." in gene_id else gene_id
-            
-            # Step 2: Use gget.info() to get detailed gene information
-            # Note: gget.info() only accepts Ensembl IDs
-            gene_info = gget.info(ensembl_id, verbose=False)
-            
-            if gene_info is None or len(gene_info) == 0:
-                result[gene_id] = None
-                continue
-            
-            # Step 3: Extract the target ID type from the result
-            if to_type == "ensembl":
-                # Extract base Ensembl ID (remove version suffix if present)
-                result_ensembl_id = gene_info.iloc[0]["ensembl_id"]
-                result[gene_id] = result_ensembl_id.split(".")[0] if "." in str(result_ensembl_id) else result_ensembl_id
-            elif to_type == "entrez":
-                entrez_id = gene_info.iloc[0].get("ncbi_gene_id", None)
-                result[gene_id] = str(int(entrez_id)) if pd.notna(entrez_id) else None
-            elif to_type == "symbol":
-                # Use primary_gene_name (gget's column name for gene symbol)
-                result[gene_id] = gene_info.iloc[0].get("primary_gene_name", None)
-            elif to_type == "refseq":
-                # Get RefSeq from transcript information
-                # Note: RefSeq IDs may be in transcript_names or need separate lookup
-                refseq_ids = gene_info.iloc[0].get("transcript_names", None)
-                if pd.notna(refseq_ids):
-                    # Extract RefSeq IDs (NM_* or NR_* format)
-                    if isinstance(refseq_ids, str):
-                        refseq_list = [r.strip() for r in refseq_ids.split(",") if r.strip().startswith(("NM_", "NR_"))]
-                        result[gene_id] = refseq_list[0] if refseq_list else None
-                    else:
-                        result[gene_id] = None
-                else:
-                    result[gene_id] = None
-            
-        except Exception as e:
-            # If conversion fails, return None for that ID
-            result[gene_id] = None
-    
+                        clean_to_target[query_id] = rna_ids
+
+    # Map back to original gene IDs
+    for gene_id in gene_ids:
+        clean_id = original_to_clean[gene_id]
+        if clean_id in clean_to_target:
+            result[gene_id] = clean_to_target[clean_id]
+
     return result
+
 
 # def normalize_data(
 #     data: pd.DataFrame,
@@ -201,10 +202,10 @@ def convert_gene_ids(
 # ) -> pd.DataFrame:
 #     """
 #     Universal normalization function for all omics data types.
-    
+
 #     Applicable to proteomics, metabolomics, RNA-seq (non-count), and other
 #     continuous omics data. Removes systematic technical variations.
-    
+
 #     Parameters
 #     ----------
 #     data : pd.DataFrame
@@ -226,12 +227,12 @@ def convert_gene_ids(
 #         Additional parameters:
 #         - reference_sample: For PQN (str)
 #         - gene_lengths: For TPM/FPKM (pd.Series)
-    
+
 #     Returns
 #     -------
 #     pd.DataFrame
 #         Normalized data
-    
+
 #     Examples
 #     --------
 #     >>> data = pd.DataFrame({
@@ -239,7 +240,7 @@ def convert_gene_ids(
 #     ...     's2': [150, 250, 60]
 #     ... })
 #     >>> normalized = normalize_data(data, ['s1', 's2'], method='median')
-    
+
 #     Notes
 #     -----
 #     - Choose method based on data characteristics
@@ -249,74 +250,71 @@ def convert_gene_ids(
 #     """
 #     result = data.copy()
 #     data_matrix = data[sample_columns].values.astype(float)
-    
+
 #     # Log transformation
 #     if log_transform:
 #         data_matrix = np.log(data_matrix + 1) / np.log(log_base)
-    
+
 #     # Normalization
 #     if method == "median":
 #         medians = np.nanmedian(data_matrix, axis=0)
 #         global_median = np.nanmean(medians)
 #         normalized = data_matrix * (global_median / medians)
-        
+
 #     elif method == "quantile":
 #         from scipy.interpolate import interp1d
-        
+
 #         sorted_data = np.sort(data_matrix, axis=0)
 #         row_means = np.nanmean(sorted_data, axis=1)
 #         ranks = data_matrix.argsort(axis=0).argsort(axis=0)
-        
+
 #         normalized = np.zeros_like(data_matrix)
 #         for j in range(data_matrix.shape[1]):
 #             normalized[:, j] = row_means[ranks[:, j]]
-    
+
 #     elif method == "zscore":
 #         means = np.nanmean(data_matrix, axis=0)
 #         stds = np.nanstd(data_matrix, axis=0)
 #         stds[stds == 0] = 1
 #         normalized = (data_matrix - means) / stds
-        
+
 #     elif method == "total":
 #         totals = np.nansum(data_matrix, axis=0)
 #         global_total = np.nanmean(totals)
 #         normalized = data_matrix * (global_total / totals)
-        
+
 #     elif method == "pqn":
 #         # Probabilistic Quotient Normalization
 #         totals = np.nansum(data_matrix, axis=0)
 #         normalized_integral = data_matrix / totals * np.median(totals)
-        
+
 #         reference_sample = kwargs.get('reference_sample', None)
 #         if reference_sample and reference_sample in sample_columns:
 #             ref_idx = sample_columns.index(reference_sample)
 #             ref_spectrum = normalized_integral[:, ref_idx]
 #         else:
 #             ref_spectrum = np.nanmedian(normalized_integral, axis=1)
-        
+
 #         quotients = normalized_integral / ref_spectrum[:, np.newaxis]
 #         median_quotients = np.nanmedian(quotients, axis=0)
 #         normalized = data_matrix / median_quotients
-        
+
 #     else:
 #         raise ValueError(f"Unknown method: {method}")
-    
+
 #     result[sample_columns] = normalized
 #     return result
 
 
 def impute_missing_values(
-    data: pd.DataFrame,
-    sample_columns: list,
-    method: str = "knn",
-    **kwargs
+    data: pd.DataFrame, sample_columns: list, method: str = "knn", **kwargs
 ) -> pd.DataFrame:
     """
     Universal missing value imputation for omics data.
-    
+
     Handles missing values in any type of omics data. Essential preprocessing
     step for many downstream analyses that require complete data.
-    
+
     Parameters
     ----------
     data : pd.DataFrame
@@ -336,12 +334,12 @@ def impute_missing_values(
         - n_neighbors: For KNN (default: 5)
         - downshift: For minprob (default: 1.8)
         - width: For minprob (default: 0.3)
-    
+
     Returns
     -------
     pd.DataFrame
         Data with imputed values
-    
+
     Examples
     --------
     >>> data = pd.DataFrame({
@@ -349,7 +347,7 @@ def impute_missing_values(
     ...     's2': [2.0, 2.5, np.nan]
     ... })
     >>> imputed = impute_missing_values(data, ['s1', 's2'], method='knn')
-    
+
     Notes
     -----
     - KNN works well for MCAR (missing completely at random)
@@ -358,37 +356,38 @@ def impute_missing_values(
     """
     result = data.copy()
     data_matrix = data[sample_columns].values.astype(float)
-    
+
     if method == "knn":
         from sklearn.impute import KNNImputer
-        n_neighbors = kwargs.get('n_neighbors', 5)
+
+        n_neighbors = kwargs.get("n_neighbors", 5)
         imputer = KNNImputer(n_neighbors=n_neighbors)
         imputed = imputer.fit_transform(data_matrix)
-        
+
     elif method == "mean":
         means = np.nanmean(data_matrix, axis=1, keepdims=True)
         imputed = data_matrix.copy()
         mask = np.isnan(imputed)
         imputed[mask] = np.repeat(means, data_matrix.shape[1], axis=1)[mask]
-        
+
     elif method == "median":
         medians = np.nanmedian(data_matrix, axis=1, keepdims=True)
         imputed = data_matrix.copy()
         mask = np.isnan(imputed)
         imputed[mask] = np.repeat(medians, data_matrix.shape[1], axis=1)[mask]
-        
+
     elif method == "zero":
         imputed = np.nan_to_num(data_matrix, nan=0.0)
-        
+
     elif method == "min":
         min_val = np.nanmin(data_matrix)
         imputed = np.nan_to_num(data_matrix, nan=min_val)
-        
+
     elif method == "minprob":
         # Minimum probability imputation (MNAR-specific)
-        downshift = kwargs.get('downshift', 1.8)
-        width = kwargs.get('width', 0.3)
-        
+        downshift = kwargs.get("downshift", 1.8)
+        width = kwargs.get("width", 0.3)
+
         imputed = data_matrix.copy()
         for i in range(data_matrix.shape[0]):
             row = data_matrix[i, :]
@@ -397,19 +396,19 @@ def impute_missing_values(
                 if len(valid_data) > 0:
                     mean_val = np.mean(valid_data)
                     std_val = np.std(valid_data)
-                    
+
                     min_val = mean_val - downshift * std_val
-                    
+
                     nan_mask = np.isnan(row)
                     n_missing = nan_mask.sum()
-                    
+
                     random_values = np.random.normal(
                         min_val, width * std_val, n_missing
                     )
                     imputed[i, nan_mask] = random_values
     else:
         raise ValueError(f"Unknown method: {method}")
-    
+
     result[sample_columns] = imputed
     return result
 
@@ -423,10 +422,10 @@ def impute_missing_values(
 # ) -> pd.DataFrame:
 #     """
 #     Universal low-value filtering for omics data.
-    
+
 #     Removes features with low detection/expression to reduce noise and
 #     improve statistical power in downstream analyses.
-    
+
 #     Parameters
 #     ----------
 #     data : pd.DataFrame
@@ -443,12 +442,12 @@ def impute_missing_values(
 #         - "threshold": Count-based threshold
 #         - "cv": Coefficient of variation filter
 #         - "iqr": Interquartile range filter
-    
+
 #     Returns
 #     -------
 #     pd.DataFrame
 #         Filtered data
-    
+
 #     Examples
 #     --------
 #     >>> data = pd.DataFrame({
@@ -456,14 +455,14 @@ def impute_missing_values(
 #     ...     's2': [120, 3, 180]
 #     ... })
 #     >>> filtered = filter_low_values(data, ['s1', 's2'], min_value=10)
-    
+
 #     Notes
 #     -----
 #     - Filtering should be done before normalization
 #     - Threshold depends on data type and scale
 #     - This function removes LOW expression/detection features (preprocessing step)
 #     - For detecting OUTLIER features with unusual patterns (QC step), use detect_outlier_features() from qc module
-#     - The "iqr" method here filters by IQR magnitude (keeps features with IQR > threshold), 
+#     - The "iqr" method here filters by IQR magnitude (keeps features with IQR > threshold),
 #       which is different from outlier detection using IQR bounds
 #     """
 #     # Validate inputs
@@ -474,22 +473,22 @@ def impute_missing_values(
 #             f"All sample_columns must exist in data.columns. "
 #             f"Available columns: {list(data.columns)[:10]}..."
 #         )
-    
+
 #     if min_samples is None:
 #         min_samples = len(sample_columns) // 2
-    
+
 #     data_matrix = data[sample_columns].values
-    
+
 #     if method == "threshold":
 #         samples_above = (data_matrix >= min_value).sum(axis=1)
 #         keep = samples_above >= min_samples
-        
+
 #     elif method == "cv":
 #         means = np.nanmean(data_matrix, axis=1)
 #         stds = np.nanstd(data_matrix, axis=1)
 #         cv = stds / (means + 1e-10)
 #         keep = cv < min_value  # min_value acts as CV threshold
-        
+
 #     elif method == "iqr":
 #         q75 = np.nanpercentile(data_matrix, 75, axis=1)
 #         q25 = np.nanpercentile(data_matrix, 25, axis=1)
@@ -497,12 +496,12 @@ def impute_missing_values(
 #         keep = iqr > min_value  # min_value acts as IQR threshold
 #     else:
 #         raise ValueError(f"Unknown method: {method}")
-    
+
 #     filtered = data.loc[keep]
-    
+
 #     n_removed = len(data) - len(filtered)
 #     print(f"Filtered {n_removed} features. Kept {len(filtered)} features.")
-    
+
 #     return filtered
 
 
@@ -516,10 +515,10 @@ def impute_missing_values(
 # ) -> pd.DataFrame:
 #     """
 #     Universal fold change calculation for omics data.
-    
+
 #     Calculates fold changes and statistical significance between two groups.
 #     Applicable to any omics data type.
-    
+
 #     Parameters
 #     ----------
 #     data : pd.DataFrame
@@ -534,12 +533,12 @@ def impute_missing_values(
 #         Apply FDR correction
 #     test_method : str, optional (default: "ttest")
 #         Statistical test: "ttest", "mannwhitney"
-    
+
 #     Returns
 #     -------
 #     pd.DataFrame
 #         Results with fold changes, p-values, and significance
-    
+
 #     Examples
 #     --------
 #     >>> data = pd.DataFrame({
@@ -549,7 +548,7 @@ def impute_missing_values(
 #     >>> fc_results = calculate_fold_changes(
 #     ...     data, ['t1', 't2'], ['c1', 'c2']
 #     ... )
-    
+
 #     Notes
 #     -----
 #     - Data should be normalized before FC calculation
@@ -558,16 +557,16 @@ def impute_missing_values(
 #     """
 #     group1_data = data[group1_samples].values
 #     group2_data = data[group2_samples].values
-    
+
 #     # Calculate means
 #     mean1 = np.nanmean(group1_data, axis=1)
 #     mean2 = np.nanmean(group2_data, axis=1)
-    
+
 #     # Calculate fold change
 #     fc = mean1 / (mean2 + 1e-10)
 #     if log_transform:
 #         fc = np.log2(fc + 1e-10)
-    
+
 #     # Perform statistical test
 #     if test_method == "ttest":
 #         t_stats, p_vals = stats.ttest_ind(group1_data, group2_data, axis=1)
@@ -585,7 +584,7 @@ def impute_missing_values(
 #         t_stats = np.array(t_stats)
 #     else:
 #         raise ValueError(f"Unknown test method: {test_method}")
-    
+
 #     # Create results
 #     results = pd.DataFrame({
 #         'mean_group1': mean1,
@@ -594,7 +593,7 @@ def impute_missing_values(
 #         'p_value': p_vals,
 #         'statistic': t_stats
 #     }, index=data.index)
-    
+
 #     # FDR correction
 #     if adjust_pvalues:
 #         valid_pvals = results['p_value'].dropna()
@@ -602,7 +601,7 @@ def impute_missing_values(
 #             n = len(valid_pvals)
 #             sorted_idx = np.argsort(valid_pvals.values)
 #             sorted_pvals = valid_pvals.values[sorted_idx]
-            
+
 #             padj = np.zeros(n)
 #             for i in range(n-1, -1, -1):
 #                 if i == n-1:
@@ -613,14 +612,14 @@ def impute_missing_values(
 #                         padj[sorted_idx[i+1]],
 #                         1.0
 #                     )
-            
+
 #             results['p_adj'] = np.nan
 #             results.loc[valid_pvals.index, 'p_adj'] = padj
 #         else:
 #             results['p_adj'] = np.nan
-    
+
 #     results['significant'] = results.get('p_adj', results['p_value']) < 0.05
-    
+
 #     return results.sort_values('p_value')
 
 
@@ -640,10 +639,10 @@ def impute_missing_values(
 # ) -> str:
 #     """
 #     Create a publication-quality volcano plot for omics data.
-    
+
 #     Visualizes fold changes vs statistical significance with enhanced styling.
 #     Shows which features are significantly changed between conditions.
-    
+
 #     Parameters
 #     ----------
 #     fc_results : pd.DataFrame
@@ -660,17 +659,17 @@ def impute_missing_values(
 #         Number of top features to label
 #     output_file : str, optional (default: "volcano_plot.png")
 #         Output file path
-    
+
 #     Returns
 #     -------
 #     str
 #         Path to saved plot
-    
+
 #     Examples
 #     --------
 #     >>> fc_results = calculate_fold_changes(data, group1, group2)
 #     >>> plot_path = draw_volcano_plot(fc_results)
-    
+
 #     Notes
 #     -----
 #     - Points in upper corners are significant
@@ -680,34 +679,34 @@ def impute_missing_values(
 #     # Set style
 #     plt.style.use('seaborn-v0_8-whitegrid')
 #     sns.set_palette("husl")
-    
+
 #     # Create figure with better proportions
 #     fig, ax = plt.subplots(figsize=(12, 10))
 #     fig.patch.set_facecolor('white')
-    
+
 #     fc = fc_results[fc_column].values
 #     pval = fc_results[pval_column].values
-    
+
 #     # -log10 transform p-values
 #     neg_log_pval = -np.log10(pval + 1e-300)
-    
+
 #     # Classify points
 #     sig_up = (fc > fc_threshold) & (pval < pval_threshold)
 #     sig_down = (fc < -fc_threshold) & (pval < pval_threshold)
 #     not_sig = ~(sig_up | sig_down)
-    
+
 #     # Enhanced color scheme
 #     up_color = '#E74C3C'  # Rich red
 #     down_color = '#3498DB'  # Rich blue
 #     ns_color = '#95A5A6'  # Muted gray
-    
+
 #     # Plot with size based on significance
 #     # Non-significant points
 #     ax.scatter(fc[not_sig], neg_log_pval[not_sig],
-#                c=ns_color, alpha=0.4, s=25, 
+#                c=ns_color, alpha=0.4, s=25,
 #                edgecolors='none', label=f'Not significant (n={not_sig.sum()})',
 #                rasterized=True)
-    
+
 #     # Upregulated - use gradient based on p-value
 #     if sig_up.sum() > 0:
 #         up_pvals = neg_log_pval[sig_up]
@@ -717,7 +716,7 @@ def impute_missing_values(
 #                    edgecolors='darkred', linewidths=0.5,
 #                    label=f'Upregulated (n={sig_up.sum()})',
 #                    zorder=3)
-    
+
 #     # Downregulated - use gradient based on p-value
 #     if sig_down.sum() > 0:
 #         down_pvals = neg_log_pval[sig_down]
@@ -727,48 +726,48 @@ def impute_missing_values(
 #                    edgecolors='darkblue', linewidths=0.5,
 #                    label=f'Downregulated (n={sig_down.sum()})',
 #                    zorder=3)
-    
+
 #     # Enhanced threshold lines with annotations
 #     pval_line_y = -np.log10(pval_threshold)
-#     ax.axhline(pval_line_y, color='#34495E', linestyle='--', 
+#     ax.axhline(pval_line_y, color='#34495E', linestyle='--',
 #                linewidth=2, alpha=0.7, zorder=1)
-#     ax.axvline(fc_threshold, color='#34495E', linestyle='--', 
+#     ax.axvline(fc_threshold, color='#34495E', linestyle='--',
 #                linewidth=2, alpha=0.7, zorder=1)
-#     ax.axvline(-fc_threshold, color='#34495E', linestyle='--', 
+#     ax.axvline(-fc_threshold, color='#34495E', linestyle='--',
 #                linewidth=2, alpha=0.7, zorder=1)
-    
+
 #     # Add threshold annotations
-#     ax.text(ax.get_xlim()[1] * 0.98, pval_line_y + 0.1, 
-#             f'p = {pval_threshold}', 
+#     ax.text(ax.get_xlim()[1] * 0.98, pval_line_y + 0.1,
+#             f'p = {pval_threshold}',
 #             ha='right', va='bottom', fontsize=10,
 #             bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8, edgecolor='gray'))
 #     ax.text(fc_threshold + 0.1, ax.get_ylim()[1] * 0.98,
-#             f'FC = {fc_threshold}', 
+#             f'FC = {fc_threshold}',
 #             ha='left', va='top', fontsize=10, rotation=90,
 #             bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8, edgecolor='gray'))
 #     ax.text(-fc_threshold - 0.1, ax.get_ylim()[1] * 0.98,
-#             f'FC = -{fc_threshold}', 
+#             f'FC = -{fc_threshold}',
 #             ha='right', va='top', fontsize=10, rotation=90,
 #             bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8, edgecolor='gray'))
-    
+
 #     # Label top features with better styling
 #     if label_top > 0:
 #         sig_features = fc_results[sig_up | sig_down].copy()
 #         if len(sig_features) > 0:
 #             sig_features = sig_features.nsmallest(min(label_top, len(sig_features)), pval_column)
-            
+
 #             for idx in sig_features.index:
 #                 x = fc_results.loc[idx, fc_column]
 #                 y = -np.log10(fc_results.loc[idx, pval_column] + 1e-300)
-                
+
 #                 # Determine color based on direction
 #                 if fc_results.loc[idx, fc_column] > 0:
 #                     text_color = up_color
 #                 else:
 #                     text_color = down_color
-                
+
 #                 ax.annotate(
-#                     idx, 
+#                     idx,
 #                     (x, y),
 #                     xytext=(8, 8),
 #                     textcoords='offset points',
@@ -776,39 +775,39 @@ def impute_missing_values(
 #                     fontweight='bold',
 #                     color=text_color,
 #                     alpha=0.9,
-#                     bbox=dict(boxstyle='round,pad=0.4', 
-#                             facecolor='white', 
+#                     bbox=dict(boxstyle='round,pad=0.4',
+#                             facecolor='white',
 #                             alpha=0.8,
 #                             edgecolor=text_color,
 #                             linewidth=1.5),
-#                     arrowprops=dict(arrowstyle='->', 
+#                     arrowprops=dict(arrowstyle='->',
 #                                   connectionstyle='arc3,rad=0',
 #                                   color=text_color,
 #                                   alpha=0.6,
 #                                   lw=1.2),
 #                     zorder=4
 #                 )
-    
+
 #     # Enhanced labels and title
 #     ax.set_xlabel('Log₂ Fold Change', fontsize=14, fontweight='bold', color='#2C3E50')
 #     ax.set_ylabel('-Log₁₀ P-value', fontsize=14, fontweight='bold', color='#2C3E50')
-#     ax.set_title('Volcano Plot', fontsize=18, fontweight='bold', 
+#     ax.set_title('Volcano Plot', fontsize=18, fontweight='bold',
 #                 color='#2C3E50', pad=20)
-    
+
 #     # Enhanced legend
-#     legend = ax.legend(loc='upper right', frameon=True, 
+#     legend = ax.legend(loc='upper right', frameon=True,
 #                       fancybox=True, shadow=True,
 #                       fontsize=11, framealpha=0.95,
 #                       edgecolor='gray', facecolor='white')
 #     legend.get_frame().set_linewidth(1.5)
-    
+
 #     # Enhanced grid
 #     ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5, color='gray')
 #     ax.set_axisbelow(True)
-    
+
 #     # Set background color
 #     ax.set_facecolor('#FAFAFA')
-    
+
 #     # Remove top and right spines, style others
 #     ax.spines['top'].set_visible(False)
 #     ax.spines['right'].set_visible(False)
@@ -816,11 +815,11 @@ def impute_missing_values(
 #     ax.spines['bottom'].set_color('#7F8C8D')
 #     ax.spines['left'].set_linewidth(1.5)
 #     ax.spines['bottom'].set_linewidth(1.5)
-    
+
 #     plt.tight_layout()
 #     plt.savefig(output_file, dpi=300, bbox_inches='tight', facecolor='white')
 #     plt.close()
-    
+
 #     return output_file
 
 
@@ -837,10 +836,10 @@ def impute_missing_values(
 # ) -> str:
 #     """
 #     Create a publication-quality heatmap for omics data.
-    
+
 #     Visualizes expression patterns across samples and features with
 #     hierarchical clustering and enhanced styling.
-    
+
 #     Parameters
 #     ----------
 #     data : pd.DataFrame
@@ -861,17 +860,17 @@ def impute_missing_values(
 #         Output file path
 #     max_features : int, optional (default: 500)
 #         Maximum number of features to plot (for performance)
-    
+
 #     Returns
 #     -------
 #     str
 #         Path to saved plot
-    
+
 #     Examples
 #     --------
 #     >>> data = pd.DataFrame(np.random.randn(50, 6))
 #     >>> plot_path = draw_heatmap(data, data.columns.tolist())
-    
+
 #     Notes
 #     -----
 #     - Row scaling recommended for gene expression
@@ -879,7 +878,7 @@ def impute_missing_values(
 #     - Enhanced styling with better color schemes and layout
 #     """
 #     import seaborn as sns
-    
+
 #     # Validate inputs
 #     missing_samples = set(sample_columns) - set(data.columns)
 #     if missing_samples:
@@ -887,9 +886,9 @@ def impute_missing_values(
 #             f"Sample(s) not found in data.columns: {missing_samples}. "
 #             f"All sample_columns must exist in data.columns."
 #         )
-    
+
 #     plot_data = data[sample_columns].copy()
-    
+
 #     # Limit features for performance
 #     if len(plot_data) > max_features:
 #         # Select top variable features
@@ -898,11 +897,11 @@ def impute_missing_values(
 #         else:
 #             variances = plot_data.var(axis=0).mean()  # Use mean if column scaling
 #             variances = plot_data.var(axis=1)
-        
+
 #         top_features = variances.nlargest(max_features).index
 #         plot_data = plot_data.loc[top_features]
 #         print(f"Limited to top {max_features} most variable features for visualization")
-    
+
 #     # Scaling
 #     if scale == "row":
 #         plot_data = plot_data.sub(plot_data.mean(axis=1), axis=0).div(
@@ -910,10 +909,10 @@ def impute_missing_values(
 #         )
 #     elif scale == "column":
 #         plot_data = (plot_data - plot_data.mean(axis=0)) / (plot_data.std(axis=0) + 1e-10)
-    
+
 #     # Set style
 #     plt.style.use('seaborn-v0_8-whitegrid')
-    
+
 #     # Enhanced color maps
 #     cmap_map = {
 #         "RdBu_r": "RdBu_r",
@@ -922,7 +921,7 @@ def impute_missing_values(
 #         "Spectral_r": "Spectral_r"
 #     }
 #     selected_cmap = cmap_map.get(cmap, cmap)
-    
+
 #     # Create heatmap with enhanced styling
 #     g = sns.clustermap(
 #         plot_data,
@@ -945,35 +944,35 @@ def impute_missing_values(
 #         metric='euclidean',
 #         z_score=None
 #     )
-    
+
 #     # Enhance colorbar
-#     g.cax.set_ylabel('Z-score' if scale != "none" else 'Value', 
+#     g.cax.set_ylabel('Z-score' if scale != "none" else 'Value',
 #                      fontsize=12, fontweight='bold', rotation=270, labelpad=20)
 #     g.cax.tick_params(labelsize=10)
-    
+
 #     # Enhance title
-#     g.fig.suptitle('Expression Heatmap', 
-#                    fontsize=16, fontweight='bold', 
+#     g.fig.suptitle('Expression Heatmap',
+#                    fontsize=16, fontweight='bold',
 #                    y=0.98, x=0.5)
-    
+
 #     # Style dendrograms
 #     if cluster_rows:
 #         g.ax_row_dendrogram.set_visible(True)
 #     if cluster_cols:
 #         g.ax_col_dendrogram.set_visible(True)
-    
+
 #     # Rotate x-axis labels
-#     plt.setp(g.ax_heatmap.get_xticklabels(), 
+#     plt.setp(g.ax_heatmap.get_xticklabels(),
 #              rotation=45, ha='right', fontsize=10)
 #     if len(plot_data) <= 100:
-#         plt.setp(g.ax_heatmap.get_yticklabels(), 
+#         plt.setp(g.ax_heatmap.get_yticklabels(),
 #                  rotation=0, fontsize=8)
-    
+
 #     # Save with high quality
-#     plt.savefig(output_file, dpi=300, bbox_inches='tight', 
+#     plt.savefig(output_file, dpi=300, bbox_inches='tight',
 #                facecolor='white', edgecolor='none')
 #     plt.close()
-    
+
 #     return output_file
 
 
@@ -991,11 +990,11 @@ def impute_missing_values(
 # ) -> str:
 #     """
 #     Universal UMAP (Uniform Manifold Approximation and Projection) visualization.
-    
+
 #     Performs dimensionality reduction using UMAP to visualize sample clustering
 #     and group separation in 2D or 3D space. Useful for quality control and
 #     exploratory data analysis across all omics types.
-    
+
 #     Parameters
 #     ----------
 #     data : pd.DataFrame
@@ -1021,12 +1020,12 @@ def impute_missing_values(
 #         Whether to label individual samples
 #     output_file : str, optional (default: "umap_plot.png")
 #         Output file path
-    
+
 #     Returns
 #     -------
 #     str
 #         Path to saved plot
-    
+
 #     Examples
 #     --------
 #     >>> # With group labels as Series
@@ -1035,24 +1034,24 @@ def impute_missing_values(
 #     ...     index=['C1', 'C2', 'C3', 'T1', 'T2', 'T3']
 #     ... )
 #     >>> plot_path = draw_umap(data, ['C1', 'C2', 'C3', 'T1', 'T2', 'T3'], groups)
-#     >>> 
+#     >>>
 #     >>> # With group labels as dict
 #     >>> groups = {
 #     ...     'Control': ['C1', 'C2', 'C3'],
 #     ...     'Treatment': ['T1', 'T2', 'T3']
 #     ... }
 #     >>> plot_path = draw_umap(data, sample_cols, groups)
-#     >>> 
+#     >>>
 #     >>> # 3D UMAP
 #     >>> plot_path = draw_umap(data, sample_cols, groups, n_components=3)
-    
+
 #     Notes
 #     -----
 #     - Data is standardized (z-score) before UMAP
 #     - UMAP preserves both local and global structure
 #     - Good for detecting batch effects and outliers
 #     - Requires umap-learn package
-    
+
 #     """
 #     try:
 #         import umap
@@ -1060,21 +1059,21 @@ def impute_missing_values(
 #         raise ImportError(
 #             "umap-learn package is required. Install with: pip install umap-learn"
 #         )
-    
+
 #     from sklearn.preprocessing import StandardScaler
 #     import seaborn as sns
 #     import matplotlib.pyplot as plt
-    
+
 #     # Extract expression data
 #     expression_matrix = data[sample_columns].values.T  # Samples as rows
-    
+
 #     # Handle missing values
 #     expression_matrix = pd.DataFrame(expression_matrix).fillna(0).values
-    
+
 #     # Standardize the data
 #     scaler = StandardScaler()
 #     expression_matrix_scaled = scaler.fit_transform(expression_matrix)
-    
+
 #     # Apply UMAP
 #     reducer = umap.UMAP(
 #         n_components=n_components,
@@ -1083,7 +1082,7 @@ def impute_missing_values(
 #         random_state=random_state
 #     )
 #     embedding = reducer.fit_transform(expression_matrix_scaled)
-    
+
 #     # Prepare group labels
 #     if group_labels is None:
 #         groups = ['All'] * len(sample_columns)
@@ -1100,7 +1099,7 @@ def impute_missing_values(
 #         groups = [group_labels.get(sample, 'Unknown') for sample in sample_columns]
 #     else:
 #         groups = ['All'] * len(sample_columns)
-    
+
 #     # Create dataframe for plotting
 #     umap_df = pd.DataFrame({
 #         'UMAP1': embedding[:, 0],
@@ -1108,23 +1107,23 @@ def impute_missing_values(
 #         'Group': groups,
 #         'Sample': sample_columns
 #     })
-    
+
 #     if n_components == 3:
 #         umap_df['UMAP3'] = embedding[:, 2]
-    
+
 #     # Set style
 #     plt.style.use('seaborn-v0_8-whitegrid')
 #     sns.set_palette("husl")
-    
+
 #     # Create plot
 #     if n_components == 2:
 #         fig, ax = plt.subplots(figsize=figsize)
 #         fig.patch.set_facecolor('white')
-        
+
 #         # Enhanced scatter plot with better colors
 #         unique_groups = umap_df['Group'].unique()
 #         colors = sns.color_palette("husl", len(unique_groups))
-        
+
 #         for i, group in enumerate(unique_groups):
 #             group_data = umap_df[umap_df['Group'] == group]
 #             ax.scatter(
@@ -1138,7 +1137,7 @@ def impute_missing_values(
 #                 linewidths=2,
 #                 zorder=3
 #             )
-        
+
 #         if label_samples:
 #             for i, row in umap_df.iterrows():
 #                 ax.annotate(
@@ -1149,31 +1148,31 @@ def impute_missing_values(
 #                     fontsize=9,
 #                     fontweight='bold',
 #                     alpha=0.8,
-#                     bbox=dict(boxstyle='round,pad=0.3', 
-#                             facecolor='white', 
+#                     bbox=dict(boxstyle='round,pad=0.3',
+#                             facecolor='white',
 #                             alpha=0.7,
 #                             edgecolor='gray',
 #                             linewidth=0.5),
 #                     zorder=4
 #                 )
-        
+
 #         ax.set_xlabel('UMAP 1', fontsize=14, fontweight='bold', color='#2C3E50')
 #         ax.set_ylabel('UMAP 2', fontsize=14, fontweight='bold', color='#2C3E50')
-#         ax.set_title('UMAP Projection of Samples', fontsize=16, fontweight='bold', 
+#         ax.set_title('UMAP Projection of Samples', fontsize=16, fontweight='bold',
 #                     color='#2C3E50', pad=15)
-        
+
 #         # Enhanced legend
 #         legend = ax.legend(title='Group', loc='best', frameon=True,
 #                           fancybox=True, shadow=True,
 #                           fontsize=11, title_fontsize=12,
 #                           framealpha=0.95, edgecolor='gray', facecolor='white')
 #         legend.get_frame().set_linewidth(1.5)
-        
+
 #         # Enhanced grid
 #         ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5, color='gray')
 #         ax.set_axisbelow(True)
 #         ax.set_facecolor('#FAFAFA')
-        
+
 #         # Style spines
 #         ax.spines['top'].set_visible(False)
 #         ax.spines['right'].set_visible(False)
@@ -1181,17 +1180,17 @@ def impute_missing_values(
 #         ax.spines['bottom'].set_color('#7F8C8D')
 #         ax.spines['left'].set_linewidth(1.5)
 #         ax.spines['bottom'].set_linewidth(1.5)
-    
+
 #     elif n_components == 3:
 #         from mpl_toolkits.mplot3d import Axes3D
-        
+
 #         fig = plt.figure(figsize=figsize)
 #         fig.patch.set_facecolor('white')
 #         ax = fig.add_subplot(111, projection='3d')
-        
+
 #         unique_groups = umap_df['Group'].unique()
 #         colors = sns.color_palette("husl", len(unique_groups))
-        
+
 #         for i, group in enumerate(unique_groups):
 #             group_data = umap_df[umap_df['Group'] == group]
 #             ax.scatter(
@@ -1205,7 +1204,7 @@ def impute_missing_values(
 #                 edgecolors='white',
 #                 linewidths=1.5
 #             )
-        
+
 #         if label_samples:
 #             for i, row in umap_df.iterrows():
 #                 ax.text(
@@ -1216,23 +1215,23 @@ def impute_missing_values(
 #                     fontsize=9,
 #                     fontweight='bold',
 #                     alpha=0.8,
-#                     bbox=dict(boxstyle='round,pad=0.3', 
-#                             facecolor='white', 
+#                     bbox=dict(boxstyle='round,pad=0.3',
+#                             facecolor='white',
 #                             alpha=0.7,
 #                             edgecolor='gray')
 #                 )
-        
+
 #         ax.set_xlabel('UMAP 1', fontsize=12, fontweight='bold', labelpad=10)
 #         ax.set_ylabel('UMAP 2', fontsize=12, fontweight='bold', labelpad=10)
 #         ax.set_zlabel('UMAP 3', fontsize=12, fontweight='bold', labelpad=10)
 #         ax.set_title('UMAP Projection (3D)', fontsize=16, fontweight='bold', pad=20)
-        
+
 #         # Enhanced legend
 #         legend = ax.legend(loc='upper left', frameon=True,
 #                           fancybox=True, shadow=True,
 #                           fontsize=11, framealpha=0.95)
 #         legend.get_frame().set_linewidth(1.5)
-        
+
 #         # Style 3D axes
 #         ax.xaxis.pane.fill = False
 #         ax.yaxis.pane.fill = False
@@ -1243,14 +1242,13 @@ def impute_missing_values(
 #         ax.xaxis.pane.set_alpha(0.1)
 #         ax.yaxis.pane.set_alpha(0.1)
 #         ax.zaxis.pane.set_alpha(0.1)
-    
+
 #     else:
 #         raise ValueError("n_components must be 2 or 3")
-    
+
 #     plt.tight_layout()
-#     plt.savefig(output_file, dpi=300, bbox_inches='tight', 
+#     plt.savefig(output_file, dpi=300, bbox_inches='tight',
 #                facecolor='white', edgecolor='none')
 #     plt.close()
-    
-#     return output_file
 
+#     return output_file
