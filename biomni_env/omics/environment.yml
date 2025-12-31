@@ -141,7 +141,7 @@ dependencies:
       - pymed
       - googlesearch-python
       - langchain_qdrant
-      - langchain_classic
+      - langchain
       - langchain
       - langgraph
       - langchain-openai

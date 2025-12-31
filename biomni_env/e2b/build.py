@@ -77,7 +77,6 @@ template = (
     .run_cmd("echo 'export PATH=/opt/pixi/bin:$PATH' >> /etc/profile.d/pixi.sh")
     .run_cmd("echo 'eval \"$(pixi completion --shell bash)\"' >> ~/.bashrc")
     # 작업 디렉토리 생성 및 설정
-    .make_dir("/workdir")
     .set_workdir("/app")
     # GitHub에서 프로젝트 클론
     .git_clone(
@@ -86,8 +85,10 @@ template = (
         branch=GITHUB_BRANCH,
         depth=1,  # shallow clone으로 빠르게
     )
-    # Pixi 환경 설치
+    # Pixi 환경 설치 (Python 3.12 - E2B Jupyter 커널과 동일 버전)
     .run_cmd("export PATH=/opt/pixi/bin:$PATH && pixi install --frozen")
+    # 프로젝트를 pip install (pixi 환경 내에서 실행)
+    .run_cmd("export PATH=/opt/pixi/bin:$PATH && pixi run pip install .")
     .run_cmd("export PATH=/opt/pixi/bin:$PATH && pixi clean cache --yes")
     .run_cmd("rm -rf ~/.cache/rattler")
     # # R 패키지 설치
@@ -98,9 +99,6 @@ template = (
     # .run_cmd(
     #     'echo \'alias pixi-shell="cd /app && export PATH=/opt/pixi/bin:\\$PATH && eval \\"\\$(pixi shell-hook)\\""\' >> ~/.bashrc'
     # )
-    # 중요: set_start_cmd를 설정하지 않음!
-    # e2b code-interpreter 이미지의 기본 start_cmd (Jupyter kernel gateway)가 유지되어야 함
-    # 기본 start_cmd가 포트 49999에서 Jupyter kernel을 시작함
 )
 
 Template.build(
@@ -108,5 +106,6 @@ Template.build(
     alias="jaechang-test",
     cpu_count=1,
     memory_mb=4096,  # R 패키지 설치에 메모리 필요
+    # skip_cache=True,  # 캐시 없이 빌드
     on_build_logs=default_build_logger(),
 )

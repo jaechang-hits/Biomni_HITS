@@ -55,7 +55,7 @@ from langchain_community.vectorstores import FAISS
 try:
     from langchain.chains import ConversationalRetrievalChain
 except:
-    from langchain_classic.chains import ConversationalRetrievalChain
+    from langchain.chains import ConversationalRetrievalChain
 
 from biomni.model.retriever import ToolRetrieverByRAG
 from biomni.utils.resource_filter import (
@@ -476,7 +476,7 @@ class FileProcessor:
 
         for local_path, sandbox_path in file_mappings:
             # Read content from local file
-            content = FileProcessor._read_text_file_content(local_path)
+            content = FileProcessor._read_file_preview(local_path)
             # Display with sandbox path
             files_info += f"- {os.path.basename(sandbox_path)}: {sandbox_path}\n"
             if content:
@@ -812,7 +812,6 @@ class WorkflowNodes:
                 file_mappings = []  # List of (local_temp_path, sandbox_path)
 
                 for remote_file in new_files:
-                    print(remote_file)
                     filename = Path(remote_file).name
                     local_temp_path = Path(temp_dir) / filename
 

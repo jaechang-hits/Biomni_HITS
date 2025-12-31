@@ -2,7 +2,7 @@ import os
 import subprocess
 from datetime import datetime
 from typing import List, Dict, Any
-from langchain_classic.memory import VectorStoreRetrieverMemory
+from langchain.memory import VectorStoreRetrieverMemory
 from langchain_qdrant import QdrantVectorStore
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_core.documents import Document
