@@ -85,7 +85,7 @@ dependencies:
   - lifelines
 
   # --- R Base & Essentials ---
-  - r-essentials
+  # - r-essentials
   - r-base>=4.4
   - xz  # required for clusterProfiler
 
@@ -141,7 +141,7 @@ dependencies:
       - pymed
       - googlesearch-python
       - langchain_qdrant
-      - langchain_classic
+      - langchain
       - langchain
       - langgraph
       - langchain-openai

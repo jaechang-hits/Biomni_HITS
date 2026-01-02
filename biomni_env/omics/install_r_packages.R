@@ -33,25 +33,19 @@ install_if_missing <- function(package_name, bioconductor = FALSE) {
 
 cat("Installing R packages that couldn't be installed via conda...\n\n")
 
-# Install BiocManager first (needed for Bioconductor packages)
-cat("Checking BiocManager...\n")
-if (!require("BiocManager", quietly = TRUE)) {
-  install.packages("BiocManager", dependencies = TRUE)
-}
-
 # Packages that couldn't be installed via conda due to dependency conflicts:
 # - devtools: conflicts with r-testthat -> r-brio
 # - timeROC: conflicts with r-pec dependency
 # - survivalROC: doesn't exist in conda channels
 
-cat("\nInstalling devtools...\n")
-install_if_missing("devtools")
+# cat("\nInstalling devtools...\n")
+# install_if_missing("devtools")
 
 cat("\nInstalling timeROC...\n")
 install_if_missing("timeROC")
 
 cat("\nInstalling survivalROC...\n")
-install_if_missing("survivalROC", bioconductor = TRUE)
+install_if_missing("survivalROC")  # CRAN package, not Bioconductor
 
 cat("\n========================================\n")
 cat("R package installation completed!\n")

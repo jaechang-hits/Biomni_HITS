@@ -13,7 +13,23 @@ import re
 import os
 import time
 import base64
-from typing import Literal, TypedDict, List, Dict, Any, Set
+import tempfile
+import threading
+from typing import (
+    Literal,
+    TypedDict,
+    List,
+    Dict,
+    Any,
+    Set,
+    Optional,
+    TYPE_CHECKING,
+    Tuple,
+)
+
+if TYPE_CHECKING:
+    from biomni.sandbox.base import CodeExecutor
+from biomni.sandbox import LocalCodeExecutor
 from pathlib import Path
 from pydantic import BaseModel, Field
 from PIL import Image
@@ -28,12 +44,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langchain_aws import BedrockEmbeddings
 from biomni.env_desc import data_lake_dict, library_content_dict
-from biomni.tool.support_tools import run_python_repl
 from biomni.utils import (
     pretty_print,
-    run_bash_script,
-    run_r_code,
-    run_with_timeout,
     textify_api_dict,
 )
 from biomni.agent.a1 import A1
@@ -44,7 +56,7 @@ from langchain_community.vectorstores import FAISS
 try:
     from langchain.chains import ConversationalRetrievalChain
 except:
-    from langchain_classic.chains import ConversationalRetrievalChain
+    from langchain.chains import ConversationalRetrievalChain
 
 from biomni.model.retriever import ToolRetrieverByRAG
 from biomni.utils.resource_filter import (
@@ -366,6 +378,55 @@ class FileProcessor:
         return message_content
 
     @staticmethod
+    def process_sandbox_files(
+        file_mappings: List[Tuple[str, str]], observation: str
+    ) -> List[Dict]:
+        """
+        Process files from sandbox with local temp paths and sandbox display paths.
+
+        Args:
+            file_mappings: List of (local_temp_path, sandbox_path) tuples
+            observation: The execution observation text
+
+        Returns:
+            List of message content items (text + images)
+        """
+        # Categorize files
+        image_mappings = []
+        other_mappings = []
+
+        for local_path, sandbox_path in file_mappings:
+            if Path(local_path).is_file():
+                if Path(local_path).suffix.lower() in FileConstants.IMAGE_EXTENSIONS:
+                    image_mappings.append((local_path, sandbox_path))
+                else:
+                    other_mappings.append((local_path, sandbox_path))
+
+        # Prepare message content
+        message_content = [{"type": "text", "text": observation}]
+
+        # Add information about newly created files
+        if image_mappings or other_mappings:
+            files_info = "\n\n**Newly created files:**\n"
+
+            # Process images
+            if image_mappings:
+                files_info += FileProcessor._process_images_with_sandbox_paths(
+                    image_mappings, message_content
+                )
+
+            # Process other files
+            if other_mappings:
+                files_info += FileProcessor._process_text_files_with_sandbox_paths(
+                    other_mappings
+                )
+
+            # Add files info to the first text content
+            message_content[0]["text"] += files_info
+
+        return message_content
+
+    @staticmethod
     def _process_images(image_paths: List[str], message_content: List[Dict]) -> str:
         """Process image files and add them to message content."""
         files_info = "\n**Images:**\n"
@@ -382,6 +443,45 @@ class FileProcessor:
 
             # Add image to message content
             FileProcessor._add_image_to_message(img_path, message_content)
+
+        return files_info
+
+    @staticmethod
+    def _process_images_with_sandbox_paths(
+        image_mappings: List[Tuple[str, str]], message_content: List[Dict]
+    ) -> str:
+        """Process image files with sandbox paths for display."""
+        files_info = "\n**Images:**\n"
+
+        for local_path, sandbox_path in image_mappings:
+            # Extract image resolution from local file
+            img_width, img_height = FileProcessor._get_image_dimensions(local_path)
+
+            # Add image info with sandbox path
+            if img_width and img_height:
+                files_info += f"- {os.path.basename(sandbox_path)}: {sandbox_path} (resolution: {img_width}x{img_height} pixels)\n"
+            else:
+                files_info += f"- {os.path.basename(sandbox_path)}: {sandbox_path}\n"
+
+            # Add image to message content (read from local file)
+            FileProcessor._add_image_to_message(local_path, message_content)
+
+        return files_info
+
+    @staticmethod
+    def _process_text_files_with_sandbox_paths(
+        file_mappings: List[Tuple[str, str]],
+    ) -> str:
+        """Process text files with sandbox paths for display."""
+        files_info = "\n**Other files:**\n"
+
+        for local_path, sandbox_path in file_mappings:
+            # Read content from local file
+            content = FileProcessor._read_file_preview(local_path)
+            # Display with sandbox path
+            files_info += f"- {os.path.basename(sandbox_path)}: {sandbox_path}\n"
+            if content:
+                files_info += f"  Content preview:\n```\n{content}\n```\n"
 
         return files_info
 
@@ -570,6 +670,9 @@ class WorkflowNodes:
         """
         Generate node: produces agent's reasoning and actions.
 
+        Supports interruption via agent.stop() - will stop LLM streaming
+        and end the workflow gracefully.
+
         Args:
             state: Current agent state
 
@@ -578,6 +681,14 @@ class WorkflowNodes:
         """
         t1 = time.time()
 
+        # Check for stop before starting
+        if self.agent.is_stopped():
+            state["messages"].append(
+                AIMessage(content="[Execution interrupted by user]")
+            )
+            state["next_step"] = "end"
+            return state
+
         # Initialize chunk messages if not present
         if "chunk_messages" not in state:
             state["chunk_messages"] = []
@@ -585,16 +696,32 @@ class WorkflowNodes:
 
         # Process messages
         processed_messages = state["messages"]
+
         messages = [
             SystemMessage(content=self.agent.system_prompt)
         ] + processed_messages
 
-        # Stream LLM response
+        # Stream LLM response with interrupt checking
         msg = ""
+        interrupted = False
         for chunk in self.agent.llm.stream(messages):
+            # Check for stop during streaming
+            if self.agent.is_stopped():
+                msg += "\n\n[Interrupted by user]"
+                interrupted = True
+                break
+
             chunk_msg = chunk.content
             msg += chunk_msg
             state["chunk_messages"].append(chunk_msg)
+
+        # If interrupted, end the workflow
+        if interrupted:
+            state["messages"].append(AIMessage(content=msg.strip()))
+            state["next_step"] = "end"
+            t2 = time.time()
+            self.agent.timer["generate"] += t2 - t1
+            return state
 
         # Fix incomplete tags
         msg = self._fix_incomplete_tags(msg, state)
@@ -603,8 +730,6 @@ class WorkflowNodes:
         think_match = re.search(r"<think>(.*?)</think>", msg, re.DOTALL)
         execute_match = re.search(r"<execute>(.*?)</execute>", msg, re.DOTALL)
         answer_match = re.search(r"<solution>(.*?)</solution>", msg, re.DOTALL)
-
-        print(execute_match, answer_match, think_match)
 
         # Add message to state
         state["messages"].append(AIMessage(content=msg.strip()))
@@ -640,7 +765,6 @@ class WorkflowNodes:
 
     def _handle_parsing_error(self, state: AgentState) -> AgentState:
         """Handle parsing errors when no valid tags are found."""
-        print("parsing error...")
 
         # Check if we already added an error message to avoid infinite loops
         error_count = sum(
@@ -677,6 +801,9 @@ class WorkflowNodes:
         """
         Execute node: runs code and returns observations.
 
+        Supports interruption via agent.stop(). If interrupted before or during
+        code execution, will skip execution and end the workflow.
+
         Args:
             state: Current agent state
 
@@ -684,6 +811,18 @@ class WorkflowNodes:
             Updated agent state
         """
         t1 = time.time()
+
+        # Check for stop before executing code
+        if self.agent.is_stopped():
+            state["messages"].append(
+                HumanMessage(
+                    content="<observation>Execution interrupted by user before code could run.</observation>"
+                )
+            )
+            state["next_step"] = "end"
+            t2 = time.time()
+            self.agent.timer["execute"] += t2 - t1
+            return state
 
         last_message = state["messages"][-1].content
 
@@ -694,26 +833,71 @@ class WorkflowNodes:
         execute_match = re.search(r"<execute>(.*?)</execute>", last_message, re.DOTALL)
 
         if execute_match:
-            print("START EXECUTING CODE!!!!!")
             code = execute_match.group(1)
 
             # Get list of files before execution
-            current_dir = Path.cwd()
-            files_before = set(current_dir.glob("*"))
+            files_before = set(self.agent.executor.list_files("."))
 
             # Execute code
             result = self._execute_code(code)
 
-            # Get list of files after execution
-            files_after = set(current_dir.glob("*"))
+            # Check if execution was interrupted
+            if self.agent.is_stopped() or "interrupted by user" in result.lower():
+                state["messages"].append(
+                    HumanMessage(
+                        content="<observation>Execution interrupted by user.</observation>"
+                    )
+                )
+                state["next_step"] = "end"
+                t2 = time.time()
+                self.agent.timer["execute"] += t2 - t1
+                return state
+
+            # Get list of files after execution and process new files
+            files_after = set(self.agent.executor.list_files("."))
+            new_files = files_after - files_before
 
             # Prepare observation
             observation = self._prepare_observation(result)
 
-            # Process newly created files
-            message_content = FileProcessor.process_new_files(
-                files_before, files_after, observation
-            )
+            # Download files to temp directory, process for LLM, then auto-delete
+            # Files remain only in sandbox, LLM sees sandbox paths
+            with tempfile.TemporaryDirectory() as temp_dir:
+                file_mappings = []  # List of (local_temp_path, sandbox_path)
+
+                for remote_file in new_files:
+                    filename = Path(remote_file).name
+                    local_temp_path = Path(temp_dir) / filename
+
+                    # Check if it's an image or important file to download
+                    if any(
+                        filename.lower().endswith(ext)
+                        for ext in [
+                            ".png",
+                            ".jpg",
+                            ".jpeg",
+                            ".gif",
+                            ".pdf",
+                            ".svg",
+                            ".csv",
+                            ".txt",
+                            ".json",
+                        ]
+                    ):
+                        try:
+                            self.agent.executor.download_file(
+                                remote_file, str(local_temp_path)
+                            )
+                            # Store mapping: local temp path for reading, sandbox path for display
+                            file_mappings.append((str(local_temp_path), remote_file))
+                        except Exception as e:
+                            print(f"Warning: Failed to download {remote_file}: {e}")
+
+                # Process files with sandbox paths for LLM display
+                message_content = FileProcessor.process_sandbox_files(
+                    file_mappings, observation
+                )
+            # Temp directory and files are automatically deleted here
 
             # Add error fixing guide if needed
             if self._should_add_error_fixing(observation, code):
@@ -737,20 +921,31 @@ class WorkflowNodes:
 
     def _execute_code(self, code: str) -> str:
         """Execute code based on its type (Python, R, or Bash)."""
-        timeout = self.agent.timeout_seconds
+        return self._execute_with_executor(code)
 
-        # Check if R code
-        if self._is_r_code(code):
-            r_code = re.sub(r"^#!R|^# R code|^# R script", "", code, 1).strip()
-            return run_with_timeout(run_r_code, [r_code], timeout=timeout)
+    def _execute_with_executor(self, code: str) -> str:
+        """Execute code using the external executor (e.g., E2B sandbox)."""
+        executor = self.agent.executor
 
-        # Check if Bash script or CLI command
-        if self._is_bash_code(code):
-            return self._execute_bash_code(code, timeout)
+        try:
+            if self._is_r_code(code):
+                r_code = re.sub(r"^#!R|^# R code|^# R script", "", code, 1).strip()
+                return executor.run_r(r_code)
 
-        # Default: Python code
-        self.agent._inject_custom_functions_to_repl()
-        return run_with_timeout(run_python_repl, [code], timeout=timeout)
+            if self._is_bash_code(code):
+                if code.strip().startswith("#!CLI"):
+                    cli_command = re.sub(r"^#!CLI", "", code, 1).strip()
+                    cli_command = cli_command.replace("\n", " ")
+                    return executor.run_bash(cli_command)
+                else:
+                    bash_script = re.sub(r"^#!BASH|^# Bash script", "", code, 1).strip()
+                    return executor.run_bash(bash_script)
+
+            # Default: Python code
+            return executor.run_python(code)
+
+        except Exception as e:
+            return f"Error Type: {type(e).__name__}\nError Message: {str(e)}"
 
     @staticmethod
     def _is_r_code(code: str) -> bool:
@@ -769,19 +964,6 @@ class WorkflowNodes:
             or code.strip().startswith("# Bash script")
             or code.strip().startswith("#!CLI")
         )
-
-    @staticmethod
-    def _execute_bash_code(code: str, timeout: int) -> str:
-        """Execute Bash or CLI code."""
-        if code.strip().startswith("#!CLI"):
-            # For CLI commands, extract and run as single command
-            cli_command = re.sub(r"^#!CLI", "", code, 1).strip()
-            cli_command = cli_command.replace("\n", " ")
-            return run_with_timeout(run_bash_script, [cli_command], timeout=timeout)
-        else:
-            # For Bash scripts
-            bash_script = re.sub(r"^#!BASH|^# Bash script", "", code, 1).strip()
-            return run_with_timeout(run_bash_script, [bash_script], timeout=timeout)
 
     def _prepare_observation(self, result: str) -> str:
         """Prepare observation from execution result."""
@@ -1210,17 +1392,51 @@ class PromptGenerator:
 class A1_HITS(A1):
     """A1 HITS agent with improved code organization."""
 
-    def __init__(self, *args, resource_filter_config_path=None, **kwargs):
+    def __init__(
+        self,
+        *args,
+        executor: Optional["CodeExecutor"] = None,
+        resource_filter_config_path=None,
+        **kwargs,
+    ):
         """
-        Initialize A1_HITS agent with optional resource filtering.
+        Initialize A1_HITS agent with optional resource filtering and code executor.
 
         Args:
             *args: Arguments passed to parent A1 class
+            executor: External code executor (CodeExecutor interface). If None, uses local execution.
+                     The executor is created and managed externally (e.g., E2BExecutor with E2B sandbox).
             resource_filter_config_path: Path to YAML file with resource filter configuration
             **kwargs: Keyword arguments passed to parent A1 class
+
+        Example with E2B executor:
+            ```python
+            from e2b_code_interpreter import Sandbox
+            from biomni.sandbox import E2BCodeInterpreterExecutor
+
+            # Create sandbox and executor externally
+            sandbox = Sandbox()
+            executor = E2BCodeInterpreterExecutor(sandbox)
+
+            # Inject executor into agent
+            agent = A1_HITS(executor=executor)
+            agent.configure()
+            result = agent.go(prompt)
+
+            # Cleanup externally
+            sandbox.kill()
+            ```
         """
         # Store resource filter config path for later use
         self.resource_filter_config_path = resource_filter_config_path
+
+        # Store executor - create LocalCodeExecutor if not provided
+        if executor is None:
+            self.executor = LocalCodeExecutor(
+                timeout=kwargs.get("timeout_seconds", Config.DEFAULT_TIMEOUT_SECONDS)
+            )
+        else:
+            self.executor = executor
 
         # Load and apply resource filter config before calling super()
         self._apply_resource_filters_before_init(resource_filter_config_path, kwargs)
@@ -1244,6 +1460,53 @@ class A1_HITS(A1):
 
         # Initialize timer
         self.timer = {"generate": 0.0, "execute": 0.0, "error_fixing": 0.0}
+
+        # Initialize stop/interrupt mechanism
+        self._stop_event = threading.Event()
+
+    # =========================================================================
+    # Stop/Interrupt Methods
+    # =========================================================================
+
+    def stop(self) -> bool:
+        """
+        Request to stop the current execution.
+
+        This will:
+        1. Set the stop flag (checked during LLM streaming and workflow transitions)
+        2. Interrupt the executor if code is currently running
+
+        Can be called from another thread while go_stream() is running.
+
+        Returns:
+            True if stop was requested successfully
+        """
+        self._stop_event.set()
+
+        # Also interrupt the executor if it supports it
+        if hasattr(self.executor, "interrupt"):
+            self.executor.interrupt()
+
+        return True
+
+    def is_stopped(self) -> bool:
+        """
+        Check if stop has been requested.
+
+        Returns:
+            True if stop was requested
+        """
+        return self._stop_event.is_set()
+
+    def reset_stop(self) -> None:
+        """
+        Reset the stop flag.
+
+        Called automatically at the start of go_stream().
+        """
+        self._stop_event.clear()
+        if hasattr(self.executor, "reset_interrupt"):
+            self.executor.reset_interrupt()
 
     def _apply_resource_filters_before_init(self, resource_filter_config_path, kwargs):
         """Apply resource filters before parent initialization."""
@@ -1317,92 +1580,31 @@ class A1_HITS(A1):
 
                 self.tool_registry = ToolRegistry(self.module2api)
 
-    def go(self, prompt, additional_system_prompt=None):
+    def go_stream(self, prompt):
         """
-        Execute the agent with the given prompt (synchronous).
+        Execute the agent with the given prompt (streaming).
+
+        Can be interrupted by calling stop() from another thread.
 
         Args:
-            prompt: The user's query
-            additional_system_prompt: Optional additional system prompt
+            prompt: The user's query (can be a list of messages)
 
         Yields:
-            Messages from the agent execution
+            Message chunks from the agent execution.
+            If stopped, yields a final message indicating interruption.
         """
+        # Reset stop flag at the start of new execution
+        self.reset_stop()
+
         self.critic_count = 0
         self.user_task = prompt
+
+        # Sync custom functions to executor before execution
+        self._sync_custom_functions_to_executor()
 
         # Perform tool retrieval if enabled
         if self.use_tool_retriever:
             self._perform_tool_retrieval(prompt)
-
-        # Add additional system prompt if provided
-        if additional_system_prompt:
-            self.system_prompt += "\n----\n" + additional_system_prompt
-
-        # Prepare inputs
-        inputs = {"messages": [HumanMessage(content=prompt)], "next_step": None}
-        config = {
-            "recursion_limit": Config.DEFAULT_RECURSION_LIMIT,
-            "configurable": {"thread_id": Config.DEFAULT_THREAD_ID},
-        }
-
-        # Initialize log
-        self.log = [self.system_prompt]
-        yield self.system_prompt
-
-        # Stream execution
-        for s in self.app.stream(
-            inputs, stream_mode="messages", config=config, subgraphs=True
-        ):
-            # Handle message chunks and complete messages
-            if type(s[1][0]) == AIMessageChunk:
-                print(s[1][0].content, end="")
-            elif type(s[1][0]) in [AIMessage, HumanMessage]:
-                message = s[1][0].content
-
-                # Extract text from structured content
-                if isinstance(message, list):
-                    text_parts = [
-                        item["text"] for item in message if item.get("type") == "text"
-                    ]
-                    text_message = "\n".join(text_parts) if text_parts else ""
-
-                    if type(s[1][0]) == HumanMessage:
-                        print(text_message)
-                    self.log.append(message)
-                    yield text_message
-                else:
-                    if type(s[1][0]) == HumanMessage:
-                        print(message)
-                    self.log.append(message)
-                    yield message
-
-        return self.log, message
-
-    def go_stream(
-        self, prompt, additional_system_prompt=None, skip_generate_system_prompt=False
-    ):
-        """
-        Execute the agent with the given prompt (streaming).
-
-        Args:
-            prompt: The user's query (can be a list of messages)
-            additional_system_prompt: Optional additional system prompt
-            skip_generate_system_prompt: Skip system prompt generation
-
-        Yields:
-            Message chunks from the agent execution
-        """
-        self.critic_count = 0
-        self.user_task = prompt
-
-        # Perform tool retrieval if enabled
-        if self.use_tool_retriever and not skip_generate_system_prompt:
-            self._perform_tool_retrieval(prompt)
-
-        # Add additional system prompt if provided
-        if additional_system_prompt:
-            self.system_prompt += "\n----\n" + additional_system_prompt
 
         # Prepare inputs
         inputs = {"messages": prompt, "next_step": None}
@@ -1414,16 +1616,36 @@ class A1_HITS(A1):
         # Initialize log
         self.log = [self.system_prompt]
 
-        # Stream execution
-        for s in self.app.stream(
-            inputs, stream_mode="messages", config=config, subgraphs=True
-        ):
-            yield s
+        # Stream execution with interrupt checking
+        try:
+            for s in self.app.stream(
+                inputs, stream_mode="messages", config=config, subgraphs=True
+            ):
+                # Check for stop request before yielding
+                if self.is_stopped():
+                    # Yield final interrupted message
+                    yield (
+                        (),
+                        (
+                            AIMessageChunk(
+                                content="\n\n[Execution interrupted by user]"
+                            ),
+                            {},
+                        ),
+                    )
+                    return
+                yield s
+        except Exception as e:
+            if self.is_stopped():
+                yield (
+                    (),
+                    (AIMessageChunk(content="\n\n[Execution interrupted by user]"), {}),
+                )
+            else:
+                raise
 
     def _perform_tool_retrieval(self, prompt):
         """Perform tool retrieval and update system prompt."""
-        print("start tool retrieval")
-
         # Gather resources
         collector = ResourceCollector(self)
         resources = collector.gather_all_resources()
@@ -1436,9 +1658,6 @@ class A1_HITS(A1):
         selected_resources = self.retriever.prompt_based_retrieval(
             text_prompt, resources, llm=tool_llm
         )
-
-        print("end tool retrieval")
-        print("Using prompt-based RAG retrieval with the agent's LLM")
 
         # Process selected resources
         selected_resources_names = ResourceCollector.process_selected_resources(
@@ -1512,6 +1731,15 @@ class A1_HITS(A1):
             self.app.checkpointer = self.checkpointer
         else:
             self.checkpointer = None
+
+        # Sync custom functions to executor if it's a LocalCodeExecutor
+        self._sync_custom_functions_to_executor()
+
+    def _sync_custom_functions_to_executor(self):
+        """Sync custom functions to the executor if it supports them."""
+        if hasattr(self.executor, "set_custom_functions"):
+            custom_functions = getattr(self, "_custom_functions", {})
+            self.executor.set_custom_functions(custom_functions)
 
     def _load_prompt_template(self, template_name: str) -> str:
         """
