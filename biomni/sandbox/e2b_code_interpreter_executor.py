@@ -4,6 +4,7 @@ E2B Code Interpreter Executor
 Implementation of CodeExecutor using E2B's Code Interpreter sandbox.
 """
 
+import threading
 from typing import List, Dict, Optional
 from .base import CodeExecutor
 
@@ -14,6 +15,9 @@ class E2BCodeInterpreterExecutor(CodeExecutor):
 
     The sandbox instance must be created and managed externally.
     This class is just a wrapper that implements the CodeExecutor interface.
+
+    Supports full interrupt functionality - can stop running code mid-execution
+    by killing the Jupyter kernel.
 
     By default, all code execution:
     - Activates pixi environment from /app
@@ -32,6 +36,9 @@ class E2BCodeInterpreterExecutor(CodeExecutor):
 
         # Use executor
         result = executor.run_python("print('hello')")
+
+        # Interrupt running code (from another thread)
+        executor.interrupt()
 
         # Cleanup (external responsibility)
         sandbox.kill()
@@ -60,6 +67,7 @@ class E2BCodeInterpreterExecutor(CodeExecutor):
             workdir: Working directory for code execution (default: /workdir)
             timeout: Timeout in seconds for code execution (default: 600)
         """
+        super().__init__()  # Initialize interrupt support from base class
         self.sandbox = sandbox
         self.pixi_path = pixi_path or self.PIXI_PATH
         self.workdir = workdir or self.WORKDIR
@@ -67,8 +75,51 @@ class E2BCodeInterpreterExecutor(CodeExecutor):
         # Pixi's .pixi directory contains all packages
         self.pixi_env_path = f"{self.pixi_path}/.pixi"
 
+        # Track current command process for interruption
+        self._current_process = None
+        self._process_lock = threading.Lock()
+
         # Setup Python sys.path once during init
         self._setup_python_path()
+
+    def interrupt(self) -> bool:
+        """
+        Interrupt currently running code by restarting the Jupyter kernel.
+
+        This will immediately stop any running Python code. For bash/R commands,
+        it will attempt to kill the running process.
+
+        Returns:
+            True if interrupt was successful, False otherwise
+        """
+        if not self._is_executing.is_set():
+            return False
+
+        self._interrupt_event.set()
+
+        try:
+            # Restart the Jupyter kernel to stop Python execution
+            # This is the most reliable way to interrupt run_code()
+            if hasattr(self.sandbox, 'notebook') and hasattr(self.sandbox.notebook, 'restart_kernel'):
+                self.sandbox.notebook.restart_kernel()
+                # Re-setup Python path after kernel restart
+                self._setup_python_path()
+                return True
+
+            # For command execution, try to kill running processes
+            # Kill any running user processes (excluding system processes)
+            try:
+                self.sandbox.commands.run(
+                    "pkill -u user -f 'python|Rscript' 2>/dev/null || true",
+                    timeout=5
+                )
+            except Exception:
+                pass
+
+            return True
+        except Exception as e:
+            print(f"Warning: Failed to interrupt execution: {e}")
+            return False
 
     def _setup_python_path(self) -> None:
         """
@@ -100,17 +151,36 @@ os.chdir("{self.workdir}")
         Uses Jupyter kernel (run_code) to maintain state between executions.
         Pixi packages are available via sys.path injection done during init.
 
+        Can be interrupted by calling interrupt() from another thread.
+
         Args:
             code: Python code to execute
 
         Returns:
             Formatted execution output
         """
+        # Check for interrupt before starting
+        if self.is_interrupted():
+            self.reset_interrupt()
+            return "Execution interrupted by user before starting."
+
         try:
+            self._mark_executing()
             result = self.sandbox.run_code(code, timeout=self.timeout)
+
+            # Check if interrupted during execution
+            if self.is_interrupted():
+                self.reset_interrupt()
+                return "Execution interrupted by user."
+
             return self._format_code_result(result)
         except Exception as e:
+            if self.is_interrupted():
+                self.reset_interrupt()
+                return "Execution interrupted by user."
             return f"Error Type: {type(e).__name__}\nError Message: {str(e)}"
+        finally:
+            self._mark_idle()
 
     def run_bash(self, script: str) -> str:
         """
@@ -124,15 +194,31 @@ os.chdir("{self.workdir}")
         Returns:
             Formatted execution output
         """
+        # Check for interrupt before starting
+        if self.is_interrupted():
+            self.reset_interrupt()
+            return "Execution interrupted by user before starting."
+
         try:
+            self._mark_executing()
             # Execute with pixi (same pattern as test.py)
             result = self.sandbox.commands.run(
                 f"cd {self.pixi_path} && pixi run bash -c 'cd {self.workdir} && {script}'",
                 timeout=self.timeout,
             )
+
+            if self.is_interrupted():
+                self.reset_interrupt()
+                return "Execution interrupted by user."
+
             return self._format_command_result(result)
         except Exception as e:
+            if self.is_interrupted():
+                self.reset_interrupt()
+                return "Execution interrupted by user."
             return f"Error Type: {type(e).__name__}\nError Message: {str(e)}"
+        finally:
+            self._mark_idle()
 
     def run_r(self, code: str) -> str:
         """
@@ -146,7 +232,13 @@ os.chdir("{self.workdir}")
         Returns:
             Formatted execution output
         """
+        # Check for interrupt before starting
+        if self.is_interrupted():
+            self.reset_interrupt()
+            return "Execution interrupted by user before starting."
+
         try:
+            self._mark_executing()
             # Prepend workdir setup to the code
             setup_code = f'setwd("{self.workdir}")\n'
             full_code = setup_code + code
@@ -159,9 +251,19 @@ os.chdir("{self.workdir}")
                 f"{self.PIXI_RSCRIPT} -e '{escaped_code}'",
                 timeout=self.timeout,
             )
+
+            if self.is_interrupted():
+                self.reset_interrupt()
+                return "Execution interrupted by user."
+
             return self._format_command_result(result)
         except Exception as e:
+            if self.is_interrupted():
+                self.reset_interrupt()
+                return "Execution interrupted by user."
             return f"Error Type: {type(e).__name__}\nError Message: {str(e)}"
+        finally:
+            self._mark_idle()
 
     def list_files(self, directory: str = ".") -> List[str]:
         """

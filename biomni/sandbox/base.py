@@ -7,6 +7,7 @@ by different backends (E2B, Docker, local, etc.)
 
 from abc import ABC, abstractmethod
 from typing import List, Optional
+import threading
 
 
 class CodeExecutor(ABC):
@@ -15,6 +16,8 @@ class CodeExecutor(ABC):
 
     Implementations of this interface can execute code in different environments
     (E2B sandbox, Docker container, local subprocess, etc.)
+
+    Supports interruption of running code via the interrupt() method.
 
     Example usage:
         ```python
@@ -30,10 +33,49 @@ class CodeExecutor(ABC):
         agent.configure()
         result = agent.go(prompt)
 
+        # Interrupt if needed
+        executor.interrupt()
+
         # Cleanup externally
         sandbox.kill()
         ```
     """
+
+    def __init__(self):
+        """Initialize base executor with interrupt support."""
+        self._interrupt_event = threading.Event()
+        self._is_executing = threading.Event()
+
+    def interrupt(self) -> bool:
+        """
+        Request interruption of currently running code.
+
+        This sets the interrupt flag. Implementations should check this flag
+        and terminate execution as soon as possible.
+
+        Returns:
+            True if interrupt was requested (code was executing), False otherwise
+        """
+        if self._is_executing.is_set():
+            self._interrupt_event.set()
+            return True
+        return False
+
+    def is_interrupted(self) -> bool:
+        """Check if interrupt has been requested."""
+        return self._interrupt_event.is_set()
+
+    def reset_interrupt(self) -> None:
+        """Reset the interrupt flag. Called before starting new execution."""
+        self._interrupt_event.clear()
+
+    def _mark_executing(self) -> None:
+        """Mark that code execution has started."""
+        self._is_executing.set()
+
+    def _mark_idle(self) -> None:
+        """Mark that code execution has finished."""
+        self._is_executing.clear()
 
     @abstractmethod
     def run_python(self, code: str) -> str:

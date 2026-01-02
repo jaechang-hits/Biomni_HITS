@@ -14,6 +14,7 @@ import os
 import time
 import base64
 import tempfile
+import threading
 from typing import (
     Literal,
     TypedDict,
@@ -669,6 +670,9 @@ class WorkflowNodes:
         """
         Generate node: produces agent's reasoning and actions.
 
+        Supports interruption via agent.stop() - will stop LLM streaming
+        and end the workflow gracefully.
+
         Args:
             state: Current agent state
 
@@ -676,6 +680,14 @@ class WorkflowNodes:
             Updated agent state
         """
         t1 = time.time()
+
+        # Check for stop before starting
+        if self.agent.is_stopped():
+            state["messages"].append(
+                AIMessage(content="[Execution interrupted by user]")
+            )
+            state["next_step"] = "end"
+            return state
 
         # Initialize chunk messages if not present
         if "chunk_messages" not in state:
@@ -689,12 +701,27 @@ class WorkflowNodes:
             SystemMessage(content=self.agent.system_prompt)
         ] + processed_messages
 
-        # Stream LLM response
+        # Stream LLM response with interrupt checking
         msg = ""
+        interrupted = False
         for chunk in self.agent.llm.stream(messages):
+            # Check for stop during streaming
+            if self.agent.is_stopped():
+                msg += "\n\n[Interrupted by user]"
+                interrupted = True
+                break
+
             chunk_msg = chunk.content
             msg += chunk_msg
             state["chunk_messages"].append(chunk_msg)
+
+        # If interrupted, end the workflow
+        if interrupted:
+            state["messages"].append(AIMessage(content=msg.strip()))
+            state["next_step"] = "end"
+            t2 = time.time()
+            self.agent.timer["generate"] += t2 - t1
+            return state
 
         # Fix incomplete tags
         msg = self._fix_incomplete_tags(msg, state)
@@ -774,6 +801,9 @@ class WorkflowNodes:
         """
         Execute node: runs code and returns observations.
 
+        Supports interruption via agent.stop(). If interrupted before or during
+        code execution, will skip execution and end the workflow.
+
         Args:
             state: Current agent state
 
@@ -781,6 +811,18 @@ class WorkflowNodes:
             Updated agent state
         """
         t1 = time.time()
+
+        # Check for stop before executing code
+        if self.agent.is_stopped():
+            state["messages"].append(
+                HumanMessage(
+                    content="<observation>Execution interrupted by user before code could run.</observation>"
+                )
+            )
+            state["next_step"] = "end"
+            t2 = time.time()
+            self.agent.timer["execute"] += t2 - t1
+            return state
 
         last_message = state["messages"][-1].content
 
@@ -798,6 +840,18 @@ class WorkflowNodes:
 
             # Execute code
             result = self._execute_code(code)
+
+            # Check if execution was interrupted
+            if self.agent.is_stopped() or "interrupted by user" in result.lower():
+                state["messages"].append(
+                    HumanMessage(
+                        content="<observation>Execution interrupted by user.</observation>"
+                    )
+                )
+                state["next_step"] = "end"
+                t2 = time.time()
+                self.agent.timer["execute"] += t2 - t1
+                return state
 
             # Get list of files after execution and process new files
             files_after = set(self.agent.executor.list_files("."))
@@ -1407,6 +1461,53 @@ class A1_HITS(A1):
         # Initialize timer
         self.timer = {"generate": 0.0, "execute": 0.0, "error_fixing": 0.0}
 
+        # Initialize stop/interrupt mechanism
+        self._stop_event = threading.Event()
+
+    # =========================================================================
+    # Stop/Interrupt Methods
+    # =========================================================================
+
+    def stop(self) -> bool:
+        """
+        Request to stop the current execution.
+
+        This will:
+        1. Set the stop flag (checked during LLM streaming and workflow transitions)
+        2. Interrupt the executor if code is currently running
+
+        Can be called from another thread while go_stream() is running.
+
+        Returns:
+            True if stop was requested successfully
+        """
+        self._stop_event.set()
+
+        # Also interrupt the executor if it supports it
+        if hasattr(self.executor, "interrupt"):
+            self.executor.interrupt()
+
+        return True
+
+    def is_stopped(self) -> bool:
+        """
+        Check if stop has been requested.
+
+        Returns:
+            True if stop was requested
+        """
+        return self._stop_event.is_set()
+
+    def reset_stop(self) -> None:
+        """
+        Reset the stop flag.
+
+        Called automatically at the start of go_stream().
+        """
+        self._stop_event.clear()
+        if hasattr(self.executor, "reset_interrupt"):
+            self.executor.reset_interrupt()
+
     def _apply_resource_filters_before_init(self, resource_filter_config_path, kwargs):
         """Apply resource filters before parent initialization."""
         resource_config = load_resource_filter_config(resource_filter_config_path)
@@ -1483,12 +1584,18 @@ class A1_HITS(A1):
         """
         Execute the agent with the given prompt (streaming).
 
+        Can be interrupted by calling stop() from another thread.
+
         Args:
             prompt: The user's query (can be a list of messages)
 
         Yields:
-            Message chunks from the agent execution
+            Message chunks from the agent execution.
+            If stopped, yields a final message indicating interruption.
         """
+        # Reset stop flag at the start of new execution
+        self.reset_stop()
+
         self.critic_count = 0
         self.user_task = prompt
 
@@ -1509,11 +1616,33 @@ class A1_HITS(A1):
         # Initialize log
         self.log = [self.system_prompt]
 
-        # Stream execution
-        for s in self.app.stream(
-            inputs, stream_mode="messages", config=config, subgraphs=True
-        ):
-            yield s
+        # Stream execution with interrupt checking
+        try:
+            for s in self.app.stream(
+                inputs, stream_mode="messages", config=config, subgraphs=True
+            ):
+                # Check for stop request before yielding
+                if self.is_stopped():
+                    # Yield final interrupted message
+                    yield (
+                        (),
+                        (
+                            AIMessageChunk(
+                                content="\n\n[Execution interrupted by user]"
+                            ),
+                            {},
+                        ),
+                    )
+                    return
+                yield s
+        except Exception as e:
+            if self.is_stopped():
+                yield (
+                    (),
+                    (AIMessageChunk(content="\n\n[Execution interrupted by user]"), {}),
+                )
+            else:
+                raise
 
     def _perform_tool_retrieval(self, prompt):
         """Perform tool retrieval and update system prompt."""

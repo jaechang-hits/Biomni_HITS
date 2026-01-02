@@ -20,6 +20,11 @@ class LocalCodeExecutor(CodeExecutor):
     Executes Python, R, and Bash code locally using subprocess and persistent REPL.
     This is the default executor used when no external sandbox is provided.
 
+    Note: Interrupt support is limited for local execution. The interrupt() method
+    will only stop execution if called BEFORE the code starts running. Once code
+    is executing, it cannot be forcefully stopped (Python thread limitation).
+    For full interrupt support during execution, use E2BCodeInterpreterExecutor.
+
     Example:
         ```python
         from biomni.sandbox import LocalCodeExecutor
@@ -53,6 +58,7 @@ class LocalCodeExecutor(CodeExecutor):
             workdir: Working directory for code execution (default: current directory)
             custom_functions: Dictionary of custom functions to inject into Python REPL
         """
+        super().__init__()  # Initialize interrupt support from base class
         self.timeout = timeout
         self.workdir = workdir or os.getcwd()
         self.custom_functions = custom_functions or {}
@@ -86,7 +92,14 @@ class LocalCodeExecutor(CodeExecutor):
         Returns:
             Execution output as string
         """
+        # Check for interrupt before starting
+        if self.is_interrupted():
+            self.reset_interrupt()
+            return "Execution interrupted by user before starting."
+
         try:
+            self._mark_executing()
+
             # Inject custom functions before execution
             self._inject_custom_functions()
 
@@ -101,6 +114,8 @@ class LocalCodeExecutor(CodeExecutor):
                 os.chdir(original_dir)
         except Exception as e:
             return f"Error Type: {type(e).__name__}\nError Message: {str(e)}"
+        finally:
+            self._mark_idle()
 
     def run_bash(self, script: str) -> str:
         """
@@ -112,7 +127,14 @@ class LocalCodeExecutor(CodeExecutor):
         Returns:
             Execution output as string
         """
+        # Check for interrupt before starting
+        if self.is_interrupted():
+            self.reset_interrupt()
+            return "Execution interrupted by user before starting."
+
         try:
+            self._mark_executing()
+
             # Save current directory
             original_dir = os.getcwd()
 
@@ -127,6 +149,8 @@ class LocalCodeExecutor(CodeExecutor):
                 os.chdir(original_dir)
         except Exception as e:
             return f"Error Type: {type(e).__name__}\nError Message: {str(e)}"
+        finally:
+            self._mark_idle()
 
     def run_r(self, code: str) -> str:
         """
@@ -140,7 +164,14 @@ class LocalCodeExecutor(CodeExecutor):
         Returns:
             Execution output as string
         """
+        # Check for interrupt before starting
+        if self.is_interrupted():
+            self.reset_interrupt()
+            return "Execution interrupted by user before starting."
+
         try:
+            self._mark_executing()
+
             # Save current directory and change to workdir
             original_dir = os.getcwd()
             os.chdir(self.workdir)
@@ -152,6 +183,8 @@ class LocalCodeExecutor(CodeExecutor):
                 os.chdir(original_dir)
         except Exception as e:
             return f"Error Type: {type(e).__name__}\nError Message: {str(e)}"
+        finally:
+            self._mark_idle()
 
     def list_files(self, directory: str = ".") -> List[str]:
         """
