@@ -22,31 +22,35 @@ allowed_resources:
   #    or:      - module: biomni.tool.tool_description.genetics
   
   tools:
-    # Example: Allow specific tools by name
-    # Uncomment and add tool names you want to allow:
-    #- query_uniprot
-    #- liftover_coordinates
-    
-    # Example: Allow all tools from a specific Python file
-    # - file: biomni/tool/genetics.py
-    
+    # All available tool modules from biomni/tool/
     - module: biomni.tool.bio_image_processing
-    - module: biomni.tool.immunology
-    - module: biomni.tool.microbiology
-    # Example: Allow all tools from genetics module
-    # - module: biomni.tool.genetics
-    
-    # Example: Allow all tools from database module
+    - module: biomni.tool.biochemistry
+    - module: biomni.tool.bioengineering
+    - module: biomni.tool.bioimaging
+    - module: biomni.tool.biophysics
+    - module: biomni.tool.cancer_biology
+    - module: biomni.tool.cell_biology
     - module: biomni.tool.database
+    - module: biomni.tool.facs_fcm
+    - module: biomni.tool.genetics
+    - module: biomni.tool.genomics
+    - module: biomni.tool.glycoengineering
+    - module: biomni.tool.immunology
+    - module: biomni.tool.lab_automation
     - module: biomni.tool.literature
-    
-    # Universal omics analysis modules
-    # - module: biomni.tool.omics
-    # - module: biomni.tool.qc
-    # - module: biomni.tool.statistics
-
-    # Extra tools
     # - module: biomni.tool.memory
+    - module: biomni.tool.microbiology
+    - module: biomni.tool.molecular_biology
+    # - module: biomni.tool.omics
+    - module: biomni.tool.pathology
+    - module: biomni.tool.pharmacology
+    - module: biomni.tool.physiology
+    - module: biomni.tool.protocols
+    - module: biomni.tool.qc
+    - module: biomni.tool.statistics
+    - module: biomni.tool.support_tools
+    - module: biomni.tool.synthetic_biology
+    - module: biomni.tool.systems_biology
   
   # Data lake items: list of allowed data lake item names
   # Uncomment and add data lake item names you want to allow:
@@ -56,8 +60,135 @@ allowed_resources:
     # - example_data_item_2
   
   # Libraries: list of allowed library/software names
-  # Uncomment and add library names you want to allow:
+  # These are the packages available in pixi.toml
+  # Only these packages can be used by the agent
   libraries:
+    # Python core & utilities
+    - python
+    - pip
+    - numpy
+    - pandas
+    - matplotlib
+    - scipy
+    - statsmodels
+    - scikit-learn
+    - seaborn
+    - networkx
+    - rdkit
+    - openai
+    - transformers
+    - sentencepiece
+    - beautifulsoup4
+    - lxml
+    - requests
+    - pyyaml
+    - tqdm
+    - python-dotenv
+    - chainlit
+    - docstring_parser
+    
+    # Bioinformatics CLI tools
+    - blast
+    - samtools
+    - bowtie2
+    - bwa
+    - bedtools
+    - fastqc
+    - trimmomatic
+    - mafft
+    
+    # Bioinformatics Python packages
+    - gseapy
+    - mageck
+    - macs3
+    - pysam
+    - pyfaidx
+    - pyranges
+    - pybedtools
+    - cooler
+    - msprime
+    - tskit
+    - hmmlearn
+    - biopython
+    - scanpy
+    - anndata
+    - igraph
+    - leidenalg
+    - louvain
+    - hdbscan
+    - biopandas
+    - gget
+    - cellxgene-census
+    - scikit-bio
+    - umap-learn
+    - scrublet
+    - scvelo
+    - scvi-tools
+    - harmony-pytorch
+    - pyliftover
+    - cython
+    - faiss-cpu
+    - lifelines
+    
+    # R packages
+    - r-base
+    - r-ggplot2
+    - r-lme4
+    - r-dplyr
+    - r-tidyr
+    - r-readr
+    - r-stringr
+    - r-matrix
+    - r-rcpp
+    - r-remotes
+    - r-harmony
+    - r-glmnet
+    - r-survival
+    - r-survminer
+    
+    # Bioconductor packages
+    - bioconductor-deseq2
+    - bioconductor-edger
+    - bioconductor-limma
+    - bioconductor-clusterprofiler
+    - bioconductor-geoquery
+    - bioconductor-org.hs.eg.db
+    - bioconductor-hgu133plus2.db
+    - bioconductor-genomeinfodb
+    
+    # Development & utilities
+    - gradio
+    - jupyter
+    - notebook
+    - ipykernel
+    - pytest
+    - pytz
+    - markdown
+    - openpyxl
+    - xz
+    
+    # PyPI dependencies
+    - pyscenic
+    - ddgs
+    - pylint
+    - mcp
+    - tooluniverse
+    - aiosqlite
+    - pypdf2
+    - pymed
+    - googlesearch-python
+    - langchain-qdrant
+    - langchain
+    - langgraph
+    - langchain-openai
+    - langchain-google-genai
+    - langchain-aws
+    - langchain-community
+    - python-libsbml
+    - cobra
+    - e2b
+    - e2b-code-interpreter
+    - mygene
 
 # Excluded resources - these will be explicitly excluded (blacklist)
 excluded_resources:
